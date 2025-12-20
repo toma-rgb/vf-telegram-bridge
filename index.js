@@ -1,5 +1,6 @@
 // path: index.js
-import 'dotenv/config';
+import dotenv from 'dotenv';
+dotenv.config({ override: true });
 import axios from 'axios';
 import http from 'http';
 import https from 'https';
@@ -106,13 +107,24 @@ async function sendRequestToVoiceflow(userId, request) {
 // =====================
 function esc(s) { return s.replaceAll(/&/g, '&amp;').replaceAll(/</g, '&lt;').replaceAll(/>/g, '&gt;'); }
 function normalizeSpacing(text) { if (!text) return ''; return text.replace(/[ \t]+$/gm, '').replace(/\n{3,}/g, '\n\n').trim(); }
+
+// Markdown → Telegram HTML (bold/italic + hyperlinks ONLY; images handled elsewhere)
 function mdToHtml(input) {
   if (!input) return '';
   let s = esc(String(input));
+
+  // Convert regular links [text](url) but NOT images ![alt](url)
+  // Negative lookbehind ensures no leading '!'
+  s = s.replace(/(?<!!)\[([^\]]+?)\]\((https?:\/\/[^\s)]+)\)/g, (_, text, url) => {
+    return `<a href="${esc(url)}">${esc(text)}</a>`;
+  });
+
+  // Bold and italic
   s = s.replace(/\*\*(.+?)\*\*/g, '<b>$1</b>');
   s = s.replace(/(^|[^*])\*(?!\s)(.+?)\*(?!\*)/g, (_, pre, body) => `${pre}<i>${body}</i>`);
   return s;
 }
+
 function slateToText(slate) {
   try {
     return slate?.content?.map(b => (b.children || []).map(c => c.text).filter(Boolean).join(''))
@@ -204,8 +216,9 @@ function parseGalleryBlocks(raw) {
   const consumed = new Array(n).fill(false);
   const items = [];
 
-  const imgRe = /^\!\[[^\]]*?\]\((https?:\/\/[^\s)]+)\)\s*$/i;
-  const viewRe = /^\[ *View +Menu *\]\((https?:\/\/[^\s)]+)\)\s*$/i;
+  // Allow leading/trailing spaces so Markdown image lines like "  ![alt](url)  " work
+  const imgRe = /^\s*\!\[[^\]]*?\]\((https?:\/\/[^\s)]+)\)\s*$/i;
+  const viewRe = /^\s*\[ *View +Menu *\]\((https?:\/\/[^\s)]+)\)\s*$/i;
 
   let firstIdx = -1;
   let lastIdx = -1;
@@ -572,8 +585,13 @@ async function maybeAutoResetLaunch(ctx) {
 // =====================
 function wrap(fn) {
   return async (ctx, next) => {
-    try { await fn(ctx, next); }
-    catch (err) { console.error('Unhandled error while processing', ctx.update); throw err; }
+    try {
+      await fn(ctx, next);
+    } catch (err) {
+      // Log and keep running (do NOT rethrow)
+      console.error('❌ Handler error:', err?.stack || err);
+      try { await ctx.reply('Sorry, something went wrong. Please try again.'); } catch {}
+    }
   };
 }
 const RESET_TOKEN = 'RESET_MAIN_MENU';
@@ -671,6 +689,20 @@ bot.on('text', wrap(async (ctx) => {
 // Longer long-poll timeout (prevents flapping during slow VF responses)
 bot.launch({ polling: { timeout: 60 } });
 console.log('✅ Telegram ↔ Voiceflow bridge running');
+
+// Framework-level error guard
+bot.catch((err, ctx) => {
+  console.error('❌ Telegraf caught error for update:', JSON.stringify(ctx.update || {}));
+  console.error(err?.stack || err);
+});
+
+// Node safety nets so the process doesn't exit
+process.on('unhandledRejection', (reason) => {
+  console.error('UNHANDLED REJECTION:', reason);
+});
+process.on('uncaughtException', (err) => {
+  console.error('UNCAUGHT EXCEPTION:', err?.stack || err);
+});
 
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));
