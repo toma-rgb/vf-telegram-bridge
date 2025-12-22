@@ -1,11 +1,18 @@
 // path: index.js
 import dotenv from 'dotenv';
 dotenv.config({ override: true });
+
 import axios from 'axios';
 import http from 'http';
 import https from 'https';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { Telegraf } from 'telegraf';
 import { randomUUID } from 'crypto';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // =====================
 // ENV
@@ -25,12 +32,16 @@ const SESSION_RESET_HOURS = parseFloat(process.env.SESSION_RESET_HOURS || '24');
 const SESSION_RESET_ON_DAY_CHANGE = /^true$/i.test(process.env.SESSION_RESET_ON_DAY_CHANGE || 'true'); // fresh start on new local day
 const LOCAL_UTC_OFFSET_HOURS = parseFloat(process.env.LOCAL_UTC_OFFSET_HOURS || '0');     // e.g., ship time offset
 
+// Media cache config
+const MEDIA_CACHE_PATH = process.env.MEDIA_CACHE_PATH || path.join(__dirname, 'media-cache.json');
+const MEDIA_CACHE_MAX_ENTRIES = parseInt(process.env.MEDIA_CACHE_MAX_ENTRIES || '1000', 10);
+
 if (!TELEGRAM_BOT_TOKEN || !VF_API_KEY) {
   console.error('❌ Missing env. Need TELEGRAM_BOT_TOKEN and VF_API_KEY');
   process.exit(1);
 }
 
-// Tripled handler timeout (prevents “timeout exceeded” on slow VF)
+// Tripled handler timeout (helps on slow VF turns)
 const bot = new Telegraf(TELEGRAM_BOT_TOKEN, { handlerTimeout: 45_000 });
 console.log(
   (VF_USE_VERSION_HEADER
@@ -45,7 +56,7 @@ console.log(
 const httpAgent = new http.Agent({ keepAlive: true, keepAliveMsecs: 10_000, maxSockets: 50 });
 const httpsAgent = new https.Agent({ keepAlive: true, keepAliveMsecs: 10_000, maxSockets: 50 });
 const api = axios.create({
-  timeout: 45_000, // tripled
+  timeout: 45_000,
   httpAgent,
   httpsAgent,
   validateStatus: (s) => s >= 200 && s < 300,
@@ -105,21 +116,24 @@ async function sendRequestToVoiceflow(userId, request) {
 // =====================
 // Formatting
 // =====================
-function esc(s) { return s.replaceAll(/&/g, '&amp;').replaceAll(/</g, '&lt;').replaceAll(/>/g, '&gt;'); }
-function normalizeSpacing(text) { if (!text) return ''; return text.replace(/[ \t]+$/gm, '').replace(/\n{3,}/g, '\n\n').trim(); }
+function esc(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+function normalizeSpacing(text) {
+  if (!text) return '';
+  return text.replace(/[ \t]+$/gm, '').replace(/\n{3,}/g, '\n\n').trim();
+}
 
-// Markdown → Telegram HTML (bold/italic + hyperlinks ONLY; images handled elsewhere)
+// Markdown → Telegram HTML (bold/italic + hyperlinks ONLY)
 function mdToHtml(input) {
   if (!input) return '';
   let s = esc(String(input));
 
-  // Convert regular links [text](url) but NOT images ![alt](url)
-  // Negative lookbehind ensures no leading '!'
+  // Regular links [text](url) but NOT images ![alt](url)
   s = s.replace(/(?<!!)\[([^\]]+?)\]\((https?:\/\/[^\s)]+)\)/g, (_, text, url) => {
     return `<a href="${esc(url)}">${esc(text)}</a>`;
   });
 
-  // Bold and italic
   s = s.replace(/\*\*(.+?)\*\*/g, '<b>$1</b>');
   s = s.replace(/(^|[^*])\*(?!\s)(.+?)\*(?!\*)/g, (_, pre, body) => `${pre}<i>${body}</i>`);
   return s;
@@ -134,7 +148,7 @@ function slateToText(slate) {
 function textOfTrace(t) { return t?.payload?.message ?? slateToText(t?.payload?.slate) ?? ''; }
 
 // =====================
-// Media helpers
+// Media helpers (+ file_id cache)
 // =====================
 const IMG_EXT = /\.(png|jpg|jpeg|webp|bmp|heic|heif)(\?|#|$)/i;
 const GIF_EXT = /\.(gif|webm|mp4)(\?|#|$)/i;
@@ -151,6 +165,49 @@ function normalizeDirectUrl(url) {
   if (/https?:\/\/i\.imgur\.com\/.+\.gifv$/i.test(url)) return url.replace(/\.gifv$/i, '.mp4');
   return url;
 }
+
+// --- file_id cache ---
+let mediaCache = new Map();
+/** key: normalized url → { kind: 'photo'|'document'|'animation', fileId: string } */
+function loadMediaCache() {
+  try {
+    if (fs.existsSync(MEDIA_CACHE_PATH)) {
+      const raw = JSON.parse(fs.readFileSync(MEDIA_CACHE_PATH, 'utf8'));
+      mediaCache = new Map(Object.entries(raw));
+      if (DEBUG_MEDIA) console.log(`[media-cache] loaded ${mediaCache.size} entries`);
+    }
+  } catch (e) {
+    console.warn('[media-cache] load failed:', e?.message);
+  }
+}
+let saveTimer = null;
+function saveMediaCacheSoon() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    try {
+      const obj = Object.fromEntries(mediaCache.entries());
+      fs.writeFileSync(MEDIA_CACHE_PATH, JSON.stringify(obj));
+      if (DEBUG_MEDIA) console.log(`[media-cache] saved (${mediaCache.size}) → ${MEDIA_CACHE_PATH}`);
+    } catch (e) {
+      console.warn('[media-cache] save failed:', e?.message);
+    }
+  }, 400).unref();
+}
+function cacheKeyFor(url) {
+  return (normalizeDirectUrl(url) || '').trim().toLowerCase();
+}
+function rememberFileId(url, kind, fileId) {
+  const key = cacheKeyFor(url);
+  if (!key || !fileId) return;
+  if (mediaCache.size >= MEDIA_CACHE_MAX_ENTRIES && !mediaCache.has(key)) {
+    const oldest = mediaCache.keys().next().value;
+    if (oldest) mediaCache.delete(oldest);
+  }
+  mediaCache.set(key, { kind, fileId });
+  saveMediaCacheSoon();
+}
+
+loadMediaCache();
 
 async function downloadBuffer(url) {
   const direct = normalizeDirectUrl(url);
@@ -172,38 +229,116 @@ async function downloadBuffer(url) {
   return { buffer: buf, filename: `media${ext}` };
 }
 
-// Return the sent message; try animation → document → photo → URL
+function extractAndCacheFileId(url, kind, msg) {
+  try {
+    if (kind === 'animation' && msg?.animation?.file_id) {
+      rememberFileId(url, 'animation', msg.animation.file_id);
+    } else if (kind === 'document' && msg?.document?.file_id) {
+      rememberFileId(url, 'document', msg.document.file_id);
+    } else if (kind === 'photo' && Array.isArray(msg?.photo) && msg.photo.length) {
+      const best = msg.photo[msg.photo.length - 1];
+      rememberFileId(url, 'photo', best.file_id);
+    }
+  } catch {}
+}
+
+// Return the sent message; prefer cached file_id → URL → upload
 async function sendMediaWithCaption(ctx, url, captionHtml) {
   const direct = normalizeDirectUrl(url);
+  const key = cacheKeyFor(direct);
   if (DEBUG_MEDIA) console.log('[media] send', { direct, caption: !!captionHtml });
 
-  if (MEDIA_FORCE_UPLOAD) {
+  // 1) Try cached file_id first (fastest)
+  const cached = mediaCache.get(key);
+  if (cached?.fileId) {
     try {
-      const { buffer, filename } = await downloadBuffer(direct);
-      const input = { source: buffer, filename };
-      if (isGifLike(direct)) {
-        try { return await ctx.replyWithAnimation(input, { caption: captionHtml || undefined, parse_mode: 'HTML' }); } catch {}
-        try { return await ctx.replyWithDocument(input, { caption: captionHtml || undefined, parse_mode: 'HTML' }); } catch {}
-        try { return await ctx.replyWithPhoto(input, { caption: captionHtml || undefined, parse_mode: 'HTML' }); } catch {}
-      } else {
-        try { return await ctx.replyWithPhoto(input, { caption: captionHtml || undefined, parse_mode: 'HTML' }); } catch {}
-        try { return await ctx.replyWithDocument(input, { caption: captionHtml || undefined, parse_mode: 'HTML' }); } catch {}
+      if (cached.kind === 'animation') {
+        return await ctx.replyWithAnimation(cached.fileId, { caption: captionHtml || undefined, parse_mode: 'HTML' });
+      }
+      if (cached.kind === 'document') {
+        return await ctx.replyWithDocument(cached.fileId, { caption: captionHtml || undefined, parse_mode: 'HTML' });
+      }
+      if (cached.kind === 'photo') {
+        return await ctx.replyWithPhoto(cached.fileId, { caption: captionHtml || undefined, parse_mode: 'HTML' });
       }
     } catch (e) {
-      if (DEBUG_MEDIA) console.log('[media] upload failed → URL path', e?.message);
+      // fall through: refresh cache
+      if (DEBUG_MEDIA) console.log('[media] cached file_id failed, refreshing:', e?.message);
+      mediaCache.delete(key);
+      saveMediaCacheSoon();
     }
   }
 
-  try {
+  // 2) Prefer direct URL when not forcing upload
+  if (!MEDIA_FORCE_UPLOAD) {
     if (isGifLike(direct)) {
-      try { return await ctx.replyWithAnimation(direct, { caption: captionHtml || undefined, parse_mode: 'HTML' }); } catch {}
-      try { return await ctx.replyWithDocument(direct, { caption: captionHtml || undefined, parse_mode: 'HTML' }); } catch {}
-      try { return await ctx.replyWithPhoto(direct, { caption: captionHtml || undefined, parse_mode: 'HTML' }); } catch {}
+      try {
+        const m = await ctx.replyWithAnimation(direct, { caption: captionHtml || undefined, parse_mode: 'HTML' });
+        extractAndCacheFileId(direct, 'animation', m);
+        return m;
+      } catch {}
+      try {
+        const m = await ctx.replyWithDocument(direct, { caption: captionHtml || undefined, parse_mode: 'HTML' });
+        extractAndCacheFileId(direct, 'document', m);
+        return m;
+      } catch {}
+      try {
+        const m = await ctx.replyWithPhoto(direct, { caption: captionHtml || undefined, parse_mode: 'HTML' });
+        extractAndCacheFileId(direct, 'photo', m);
+        return m;
+      } catch {}
     } else {
-      try { return await ctx.replyWithPhoto(direct, { caption: captionHtml || undefined, parse_mode: 'HTML' }); } catch {}
-      try { return await ctx.replyWithDocument(direct, { caption: captionHtml || undefined, parse_mode: 'HTML' }); } catch {}
+      try {
+        const m = await ctx.replyWithPhoto(direct, { caption: captionHtml || undefined, parse_mode: 'HTML' });
+        extractAndCacheFileId(direct, 'photo', m);
+        return m;
+      } catch {}
+      try {
+        const m = await ctx.replyWithDocument(direct, { caption: captionHtml || undefined, parse_mode: 'HTML' });
+        extractAndCacheFileId(direct, 'document', m);
+        return m;
+      } catch {}
     }
-  } catch {}
+  }
+
+  // 3) Upload buffer (reliable) and cache
+  try {
+    const { buffer, filename } = await downloadBuffer(direct);
+    const input = { source: buffer, filename };
+
+    if (isGifLike(direct)) {
+      try {
+        const m = await ctx.replyWithAnimation(input, { caption: captionHtml || undefined, parse_mode: 'HTML' });
+        extractAndCacheFileId(direct, 'animation', m);
+        return m;
+      } catch {}
+      try {
+        const m = await ctx.replyWithDocument(input, { caption: captionHtml || undefined, parse_mode: 'HTML' });
+        extractAndCacheFileId(direct, 'document', m);
+        return m;
+      } catch {}
+      try {
+        const m = await ctx.replyWithPhoto(input, { caption: captionHtml || undefined, parse_mode: 'HTML' });
+        extractAndCacheFileId(direct, 'photo', m);
+        return m;
+      } catch {}
+    } else {
+      try {
+        const m = await ctx.replyWithPhoto(input, { caption: captionHtml || undefined, parse_mode: 'HTML' });
+        extractAndCacheFileId(direct, 'photo', m);
+        return m;
+      } catch {}
+      try {
+        const m = await ctx.replyWithDocument(input, { caption: captionHtml || undefined, parse_mode: 'HTML' });
+        extractAndCacheFileId(direct, 'document', m);
+        return m;
+      } catch {}
+    }
+  } catch (e) {
+    if (DEBUG_MEDIA) console.log('[media] upload failed, last resort = URL', e?.message);
+  }
+
+  // 4) Last resort: plain URL as text
   return await ctx.reply(direct);
 }
 
@@ -216,7 +351,6 @@ function parseGalleryBlocks(raw) {
   const consumed = new Array(n).fill(false);
   const items = [];
 
-  // Allow leading/trailing spaces so Markdown image lines like "  ![alt](url)  " work
   const imgRe = /^\s*\!\[[^\]]*?\]\((https?:\/\/[^\s)]+)\)\s*$/i;
   const viewRe = /^\s*\[ *View +Menu *\]\((https?:\/\/[^\s)]+)\)\s*$/i;
 
@@ -328,7 +462,6 @@ function keepTyping(ctx) {
 // Rendering (no blank placeholders)
 // =====================
 
-// Track the last bot message per user; we edit this to attach keyboards
 const lastBotMsgByUser = new Map(); // userId -> { chatId, message_id }
 function tracesOf(vf) { return Array.isArray(vf) ? vf : (Array.isArray(vf?.traces) ? vf.traces : []); }
 
@@ -588,13 +721,11 @@ function wrap(fn) {
     try {
       await fn(ctx, next);
     } catch (err) {
-      // Log and keep running (do NOT rethrow)
       console.error('❌ Handler error:', err?.stack || err);
       try { await ctx.reply('Sorry, something went wrong. Please try again.'); } catch {}
     }
   };
 }
-const RESET_TOKEN = 'RESET_MAIN_MENU';
 
 bot.start(wrap(async (ctx) => {
   const userId = ctx.from.id;
@@ -625,7 +756,6 @@ bot.on('callback_query', wrap(async (ctx) => {
   await ctx.answerCbQuery().catch(() => {});
   const stop = keepTyping(ctx);
 
-  // Auto-reset on day change / long gaps (ignore stale button)
   if (await maybeAutoResetLaunch(ctx)) { stop(); return; }
 
   if (typeof data === 'string' && data.startsWith(CALLBACK_PREFIX)) data = stashTake(data, userId) ?? '';
@@ -671,7 +801,6 @@ bot.on('text', wrap(async (ctx) => {
 
   const stop = keepTyping(ctx);
 
-  // Auto-reset on day change / long gaps
   if (await maybeAutoResetLaunch(ctx)) { stop(); return; }
 
   try {
@@ -686,23 +815,19 @@ bot.on('text', wrap(async (ctx) => {
 // =====================
 // START
 // =====================
-// Longer long-poll timeout (prevents flapping during slow VF responses)
 bot.launch({ polling: { timeout: 60 } });
 console.log('✅ Telegram ↔ Voiceflow bridge running');
 
-// Framework-level error guard
 bot.catch((err, ctx) => {
   console.error('❌ Telegraf caught error for update:', JSON.stringify(ctx.update || {}));
   console.error(err?.stack || err);
 });
 
-// Node safety nets so the process doesn't exit
 process.on('unhandledRejection', (reason) => {
   console.error('UNHANDLED REJECTION:', reason);
 });
 process.on('uncaughtException', (err) => {
   console.error('UNCAUGHT EXCEPTION:', err?.stack || err);
 });
-
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));
