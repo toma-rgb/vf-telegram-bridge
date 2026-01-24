@@ -1011,7 +1011,7 @@ function tracesOf(vf) {
 
 async function sendChoiceAsNewMessage(ctx, inlineKeyboard) {
   if (!inlineKeyboard?.length) return null;
-  const msg = await ctx.reply('...', { reply_markup: { inline_keyboard: inlineKeyboard } });
+  const msg = await ctx.reply('Select an option:', { reply_markup: { inline_keyboard: inlineKeyboard } });
   if (msg) lastBotMsgByUser.set(ctx.from.id, { chatId: msg.chat.id, message_id: msg.message_id, keyboard: 'choice' });
   return msg;
 }
@@ -1100,8 +1100,17 @@ async function renderTextChoiceGalleryAndButtonsLast(ctx, raw, maybeChoice) {
     }
 
     // 2) If the text is now empty (because it was only an iframe), provide a prompt
+    // but ONLY if it wouldn't be a redundant duplicate
+    const PROMPT = 'Please use the button below to complete your booking:';
     if (!textToDisplay) {
-      textToDisplay = 'Please use the button below to complete your booking:';
+      // Check if the previous trace was already this exact prompt
+      const previousTrace = ctx.state?.lastTraceType === 'text' ? ctx.state?.lastTraceText : null;
+      if (previousTrace?.includes('Please use the Calendly window below') || previousTrace?.includes('complete your booking')) {
+        // Skip adding the prompt again, the button will attach to the previous message or stand alone
+        textToDisplay = '';
+      } else {
+        textToDisplay = PROMPT;
+      }
     }
 
     // 3) Create the button
@@ -1117,12 +1126,6 @@ async function renderTextChoiceGalleryAndButtonsLast(ctx, raw, maybeChoice) {
   }
 
   const { head, items, tail } = parseGalleryBlocks(textToDisplay);
-
-  if (head) {
-    lastMsg = await safeReplyHtml(ctx, mdToHtml(head));
-    if (lastMsg)
-      lastBotMsgByUser.set(ctx.from.id, { chatId: lastMsg.chat.id, message_id: lastMsg.message_id, keyboard: 'none' });
-  }
 
   let consumed = false;
   let buttons = maybeChoice?.payload?.buttons ? [...maybeChoice.payload.buttons] : [];
@@ -1222,9 +1225,11 @@ async function renderTextChoiceGalleryAndButtonsLast(ctx, raw, maybeChoice) {
       : lastBotMsgByUser.get(ctx.from.id) || null;
 
     await attachChoiceKeyboard(ctx, target, kb.inline_keyboard);
-    if (maybeChoice?.payload?.buttons?.length) {
-      consumed = true;
-    }
+  }
+
+  // CRITICAL FIX: Only set consumed = true if we actually "stole" the buttons from a real choice trace
+  if (kb) {
+    consumed = true;
   }
 
   return { consumed };
@@ -1260,6 +1265,12 @@ async function sendVFToTelegram(ctx, vfResp) {
 
       const next = traces[i + 1];
       const { consumed } = await renderTextChoiceGalleryAndButtonsLast(ctx, raw, next?.type === 'choice' ? next : null);
+
+      // TRACK HISTORY for smarter rendering
+      ctx.state = ctx.state || {};
+      ctx.state.lastTraceType = 'text';
+      ctx.state.lastTraceText = raw;
+
       if (consumed) {
         i += 1;
         lastMsgOverall = lastBotMsgByUser.get(userId) || lastMsgOverall;
