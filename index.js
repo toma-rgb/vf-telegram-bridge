@@ -40,6 +40,8 @@ const LOCAL_UTC_OFFSET_HOURS = parseFloat(process.env.LOCAL_UTC_OFFSET_HOURS || 
 // Media cache config
 const MEDIA_CACHE_PATH = process.env.MEDIA_CACHE_PATH || path.join(__dirname, 'media-cache.json');
 const MEDIA_CACHE_MAX_ENTRIES = parseInt(process.env.MEDIA_CACHE_MAX_ENTRIES || '1000', 10);
+const CALENDLY_MINI_APP_URL = process.env.CALENDLY_MINI_APP_URL || ''; // Link to your hosted calendly.html
+
 
 if (!TELEGRAM_BOT_TOKEN || !VF_API_KEY || !VF_PROJECT_ID) {
   console.error('❌ Missing env. Need TELEGRAM_BOT_TOKEN, VF_API_KEY, VF_PROJECT_ID');
@@ -52,7 +54,7 @@ console.log(
   (VF_USE_VERSION_HEADER
     ? `🔒 VF pinned versionID=${VF_VERSION_ID || '(empty)'}`
     : '🚀 VF Published (no version header)') +
-    ` | Streaming: ON | completion_events=${VF_COMPLETION_EVENTS} | completion_to_telegram=${VF_COMPLETION_TO_TELEGRAM} | Media force upload: ${MEDIA_FORCE_UPLOAD}`
+  ` | Streaming: ON | completion_events=${VF_COMPLETION_EVENTS} | completion_to_telegram=${VF_COMPLETION_TO_TELEGRAM} | Media force upload: ${MEDIA_FORCE_UPLOAD}`
 );
 
 // =====================
@@ -116,7 +118,7 @@ function vfHeaders({ stream = false } = {}) {
 async function resetVoiceflow(userId) {
   try {
     await api.delete(userStateBase(userId), { headers: { Authorization: VF_API_KEY } });
-  } catch {}
+  } catch { }
 }
 
 function parseSseStream(readable, onEvent) {
@@ -139,7 +141,7 @@ function parseSseStream(readable, onEvent) {
     let data = raw;
     try {
       data = JSON.parse(raw);
-    } catch {}
+    } catch { }
     onEvent({ event: ev, id, data });
   };
 
@@ -315,7 +317,7 @@ async function safeEditHtml(ctx, chatId, messageId, html, extra = {}) {
           ...extra,
         });
         return true;
-      } catch {}
+      } catch { }
     }
 
     if (DEBUG_STREAM) console.log('[tg-edit] failed:', m);
@@ -368,7 +370,7 @@ function mergeCompletion(prev, incoming) {
 async function completionSendOrUpdate(ctx, userId, fullText, { force = false } = {}) {
   const s = completionStateByUser.get(userId) || defaultCompletionState();
   s.accumulated = String(fullText || '');
-  
+
   const html = mdToHtml(String(s.accumulated || '').trim());
   if (!html) {
     completionStateByUser.set(userId, s);
@@ -385,14 +387,14 @@ async function completionSendOrUpdate(ctx, userId, fullText, { force = false } =
       completionStateByUser.set(userId, s);
       return;
     }
-    
+
     // ADD THIS LOGIC: Wait for complete sentence or enough content
     const plainText = s.accumulated.trim();
     if (!hasCompleteSentence(plainText) && plainText.length < 200) {
       completionStateByUser.set(userId, s);
       return; // Keep accumulating until we have a complete sentence or 200 chars
     }
-    
+
     const msg = await safeReplyHtml(ctx, html);
     if (msg) {
       s.msg = msg;
@@ -504,19 +506,19 @@ async function handleTraceRealtime(ctx, trace) {
     return;
   }
 
-if (state === 'content') {
-  const incoming = String(trace.payload?.content || '');
-  s.active = true;
+  if (state === 'content') {
+    const incoming = String(trace.payload?.content || '');
+    s.active = true;
 
-  s.accumulated = mergeCompletion(s.accumulated, incoming);
-  if (s.accumulated.trim()) s.hasContent = true;
+    s.accumulated = mergeCompletion(s.accumulated, incoming);
+    if (s.accumulated.trim()) s.hasContent = true;
 
-  completionStateByUser.set(userId, s);
+    completionStateByUser.set(userId, s);
 
-  // if (DEBUG_STREAM) console.log('[completion] content len=', s.accumulated.length); // ← Comment this out
-  await completionSendOrUpdate(ctx, userId, s.accumulated);
-  return;
-}
+    // if (DEBUG_STREAM) console.log('[completion] content len=', s.accumulated.length); // ← Comment this out
+    await completionSendOrUpdate(ctx, userId, s.accumulated);
+    return;
+  }
 
   if (state === 'end') {
     s.active = false;
@@ -628,7 +630,7 @@ function extractAndCacheFileId(url, kind, msg) {
       const best = msg.photo[msg.photo.length - 1];
       rememberFileId(url, 'photo', best.file_id);
     }
-  } catch {}
+  } catch { }
 }
 
 async function sendMediaWithCaption(ctx, url, captionHtml, replyMarkup) {
@@ -663,28 +665,28 @@ async function sendMediaWithCaption(ctx, url, captionHtml, replyMarkup) {
         const m = await ctx.replyWithAnimation(direct, opts);
         extractAndCacheFileId(direct, 'animation', m);
         return m;
-      } catch {}
+      } catch { }
       try {
         const m = await ctx.replyWithDocument(direct, opts);
         extractAndCacheFileId(direct, 'document', m);
         return m;
-      } catch {}
+      } catch { }
       try {
         const m = await ctx.replyWithPhoto(direct, opts);
         extractAndCacheFileId(direct, 'photo', m);
         return m;
-      } catch {}
+      } catch { }
     } else {
       try {
         const m = await ctx.replyWithPhoto(direct, opts);
         extractAndCacheFileId(direct, 'photo', m);
         return m;
-      } catch {}
+      } catch { }
       try {
         const m = await ctx.replyWithDocument(direct, opts);
         extractAndCacheFileId(direct, 'document', m);
         return m;
-      } catch {}
+      } catch { }
     }
   }
 
@@ -698,28 +700,28 @@ async function sendMediaWithCaption(ctx, url, captionHtml, replyMarkup) {
         const m = await ctx.replyWithAnimation(input, opts);
         extractAndCacheFileId(direct, 'animation', m);
         return m;
-      } catch {}
+      } catch { }
       try {
         const m = await ctx.replyWithDocument(input, opts);
         extractAndCacheFileId(direct, 'document', m);
         return m;
-      } catch {}
+      } catch { }
       try {
         const m = await ctx.replyWithPhoto(input, opts);
         extractAndCacheFileId(direct, 'photo', m);
         return m;
-      } catch {}
+      } catch { }
     } else {
       try {
         const m = await ctx.replyWithPhoto(input, opts);
         extractAndCacheFileId(direct, 'photo', m);
         return m;
-      } catch {}
+      } catch { }
       try {
         const m = await ctx.replyWithDocument(input, opts);
         extractAndCacheFileId(direct, 'document', m);
         return m;
-      } catch {}
+      } catch { }
     }
   } catch (e) {
     if (DEBUG_MEDIA) console.log('[media] upload failed, last resort = URL', e?.message);
@@ -791,11 +793,11 @@ function parseGalleryBlocks(raw) {
 function btnLabel(b) {
   return String(
     b?.name ??
-      b?.request?.payload?.label ??
-      b?.request?.payload?.query ??
-      b?.request?.payload?.text ??
-      b?.request?.payload ??
-      'Option'
+    b?.request?.payload?.label ??
+    b?.request?.payload?.query ??
+    b?.request?.payload?.text ??
+    b?.request?.payload ??
+    'Option'
   ).slice(0, 64);
 }
 
@@ -895,7 +897,13 @@ function makeKeyboard(userId, buttons) {
 
     let buttonObj;
     if (url) {
-      buttonObj = { text, url };
+      if (CALENDLY_MINI_APP_URL && url.includes('calendly.com')) {
+        // Swap for Mini App
+        const webAppUrl = `${CALENDLY_MINI_APP_URL}?url=${encodeURIComponent(url)}`;
+        buttonObj = { text, web_app: { url: webAppUrl } };
+      } else {
+        buttonObj = { text, url };
+      }
     } else {
       let data = btnPayload(b) || text;
       if (Buffer.byteLength(data, 'utf8') > 64) data = stashPut(userId, data);
@@ -938,7 +946,13 @@ function makeCardV2Keyboard(userId, buttons = []) {
 
     let buttonObj;
     if (url) {
-      buttonObj = { text: label, url };
+      if (CALENDLY_MINI_APP_URL && url.includes('calendly.com')) {
+        // Swap for Mini App
+        const webAppUrl = `${CALENDLY_MINI_APP_URL}?url=${encodeURIComponent(url)}`;
+        buttonObj = { text: label, web_app: { url: webAppUrl } };
+      } else {
+        buttonObj = { text: label, url };
+      }
     } else {
       let data = `${REQUEST_PREFIX}${JSON.stringify(b?.request || {})}`;
       if (Buffer.byteLength(data, 'utf8') > 64) data = stashPut(userId, data);
@@ -971,7 +985,7 @@ function keepTyping(ctx) {
     if (stop) return;
     try {
       await ctx.sendChatAction('typing');
-    } catch {}
+    } catch { }
     setTimeout(loop, 4500).unref();
   })();
   return () => {
@@ -1358,7 +1372,7 @@ async function streamVoiceflowInteraction(ctx, userId, action) {
     finished = true;
     try {
       await realtimeChain;
-    } catch {}
+    } catch { }
     resolve(traces);
   };
 
@@ -1366,7 +1380,7 @@ async function streamVoiceflowInteraction(ctx, userId, action) {
     parseSseStream(res.data, ({ event, data }) => {
       if (event === 'trace' && data && typeof data === 'object') {
         traces.push(data);
-        realtimeChain = realtimeChain.then(() => handleTraceRealtime(ctx, data)).catch(() => {});
+        realtimeChain = realtimeChain.then(() => handleTraceRealtime(ctx, data)).catch(() => { });
         return;
       }
       if (event === 'end' || event === 'end-of-stream') {
@@ -1404,7 +1418,7 @@ function wrap(fn) {
       console.error('❌ Handler error:', err?.stack || err);
       try {
         await ctx.reply('Sorry, something went wrong. Please try again.');
-      } catch {}
+      } catch { }
     }
   };
 }
@@ -1446,7 +1460,7 @@ bot.on(
     const userId = ctx.from.id;
     let data = ctx.callbackQuery?.data;
 
-    await ctx.answerCbQuery().catch(() => {});
+    await ctx.answerCbQuery().catch(() => { });
     const stop = keepTyping(ctx);
 
     if (await maybeAutoResetLaunch(ctx)) {
@@ -1464,7 +1478,7 @@ bot.on(
         touchSession(userId);
         stop();
         return;
-      } catch {}
+      } catch { }
     }
 
     if (typeof data === 'string' && data.trim().startsWith('{')) {
@@ -1477,7 +1491,7 @@ bot.on(
           stop();
           return;
         }
-      } catch {}
+      } catch { }
     }
 
     if (typeof data !== 'string') data = String(data ?? '');
