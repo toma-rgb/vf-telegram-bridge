@@ -1087,9 +1087,15 @@ async function renderTextChoiceGalleryAndButtonsLast(ctx, raw, maybeChoice) {
   let syntheticCalendlyButton = null;
 
   if (calendlyUrl && CALENDLY_MINI_APP_URL) {
-    // 1) Clean the text (remove the iframe code if it exists)
-    const iframeRe = /<iframe[^>]*src=["']https:\/\/calendly\.com\/[^"']*["'][^>]*>.*?<\/iframe>/gi;
+    // 1) Clean the text (remove the iframe code or bare link)
+    // The [^]* matches any character including newlines
+    const iframeRe = /<iframe[^>]*src=["']https:\/\/calendly\.com\/[^"']*["'][^>]*>[^]*?<\/iframe>/gi;
     textToDisplay = raw.replace(iframeRe, '').trim();
+
+    // Also remove the bare URL if it's the same as calendlyUrl and it's basically sitting alone
+    if (textToDisplay.includes(calendlyUrl)) {
+      textToDisplay = textToDisplay.replace(calendlyUrl, '').replace(/\[\]\(\)/g, '').trim();
+    }
 
     // 2) If the text is now empty (because it was only an iframe), provide a prompt
     if (!textToDisplay) {
@@ -1157,7 +1163,11 @@ async function renderTextChoiceGalleryAndButtonsLast(ctx, raw, maybeChoice) {
       : lastBotMsgByUser.get(ctx.from.id) || null;
 
     await attachChoiceKeyboard(ctx, target, kb);
-    consumed = true;
+
+    // CRITICAL FIX: Only set consumed = true if we actually "stole" the buttons from a real choice trace
+    if (maybeChoice?.payload?.buttons?.length) {
+      consumed = true;
+    }
   }
 
   return { consumed };
