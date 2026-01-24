@@ -1,6 +1,6 @@
-// path: index.js
+// path: index.local.js
 import dotenv from 'dotenv';
-dotenv.config({ override: true });
+dotenv.config({ path: process.env.DOTENV_PATH || '.env', override: true });
 
 import axios from 'axios';
 import http from 'http';
@@ -19,14 +19,18 @@ const __dirname = path.dirname(__filename);
 // =====================
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const VF_API_KEY = process.env.VF_API_KEY;
+const VF_PROJECT_ID = process.env.VF_PROJECT_ID;
 
 const VF_VERSION_ID = process.env.VF_VERSION_ID || '';
 const VF_USE_VERSION_HEADER = /^true$/i.test(process.env.VF_USE_VERSION_HEADER || '');
-const MEDIA_FORCE_UPLOAD = process.env.MEDIA_FORCE_UPLOAD
-  ? /^true$/i.test(process.env.MEDIA_FORCE_UPLOAD)
-  : true;
+
+const VF_COMPLETION_EVENTS = /^true$/i.test(process.env.VF_COMPLETION_EVENTS || 'false');
+const VF_COMPLETION_TO_TELEGRAM = /^true$/i.test(process.env.VF_COMPLETION_TO_TELEGRAM || 'false');
+
+const MEDIA_FORCE_UPLOAD = process.env.MEDIA_FORCE_UPLOAD ? /^true$/i.test(process.env.MEDIA_FORCE_UPLOAD) : true;
 const DEBUG_MEDIA = /^true$/i.test(process.env.DEBUG_MEDIA || '');
 const DEBUG_BUTTONS = /^true$/i.test(process.env.DEBUG_BUTTONS || '');
+const DEBUG_STREAM = /^true$/i.test(process.env.DEBUG_STREAM || '');
 
 // Session/auto-reset config
 const SESSION_RESET_HOURS = parseFloat(process.env.SESSION_RESET_HOURS || '24');
@@ -37,8 +41,8 @@ const LOCAL_UTC_OFFSET_HOURS = parseFloat(process.env.LOCAL_UTC_OFFSET_HOURS || 
 const MEDIA_CACHE_PATH = process.env.MEDIA_CACHE_PATH || path.join(__dirname, 'media-cache.json');
 const MEDIA_CACHE_MAX_ENTRIES = parseInt(process.env.MEDIA_CACHE_MAX_ENTRIES || '1000', 10);
 
-if (!TELEGRAM_BOT_TOKEN || !VF_API_KEY) {
-  console.error('❌ Missing env. Need TELEGRAM_BOT_TOKEN and VF_API_KEY');
+if (!TELEGRAM_BOT_TOKEN || !VF_API_KEY || !VF_PROJECT_ID) {
+  console.error('❌ Missing env. Need TELEGRAM_BOT_TOKEN, VF_API_KEY, VF_PROJECT_ID');
   process.exit(1);
 }
 
@@ -48,7 +52,7 @@ console.log(
   (VF_USE_VERSION_HEADER
     ? `🔒 VF pinned versionID=${VF_VERSION_ID || '(empty)'}`
     : '🚀 VF Published (no version header)') +
-    ` | Media force upload: ${MEDIA_FORCE_UPLOAD}`
+    ` | Streaming: ON | completion_events=${VF_COMPLETION_EVENTS} | completion_to_telegram=${VF_COMPLETION_TO_TELEGRAM} | Media force upload: ${MEDIA_FORCE_UPLOAD}`
 );
 
 // =====================
@@ -90,40 +94,86 @@ setInterval(() => {
 }, 5 * 60 * 1000).unref();
 
 // =====================
-// Voiceflow helpers
+// Voiceflow helpers (STREAMING)
 // =====================
 const userStateBase = (userId) => `https://general-runtime.voiceflow.com/state/user/telegram_${userId}`;
-const interactUrl = (userId) => `${userStateBase(userId)}/interact`;
 
-function vfHeaders() {
+function streamUrl(userId) {
+  const qp = new URLSearchParams();
+  if (VF_COMPLETION_EVENTS) qp.set('completion_events', 'true');
+  const qs = qp.toString();
+  const base = `https://general-runtime.voiceflow.com/v2/project/${VF_PROJECT_ID}/user/telegram_${userId}/interact/stream`;
+  return qs ? `${base}?${qs}` : base;
+}
+
+function vfHeaders({ stream = false } = {}) {
   const headers = { Authorization: VF_API_KEY, 'Content-Type': 'application/json' };
+  if (stream) headers.Accept = 'text/event-stream';
   if (VF_USE_VERSION_HEADER && VF_VERSION_ID) headers.versionID = VF_VERSION_ID;
   return headers;
 }
 
 async function resetVoiceflow(userId) {
   try {
-    await api.delete(userStateBase(userId), { headers: vfHeaders() });
+    await api.delete(userStateBase(userId), { headers: { Authorization: VF_API_KEY } });
   } catch {}
 }
 
-async function launchVoiceflow(userId) {
-  const { data } = await api.post(interactUrl(userId), { action: { type: 'launch' } }, { headers: vfHeaders() });
-  return data;
-}
+function parseSseStream(readable, onEvent) {
+  let buf = '';
+  let curEvent = '';
+  let curId = '';
+  let dataLines = [];
 
-async function interactVoiceflow(userId, text) {
-  const { data } = await api.post(
-    interactUrl(userId),
-    { action: { type: 'text', payload: text } },
-    { headers: vfHeaders() }
-  );
-  return data;
-}
+  const dispatch = () => {
+    if (!curEvent && !curId && dataLines.length === 0) return;
+    const raw = dataLines.join('\n');
+    const ev = curEvent || 'message';
+    const id = curId || undefined;
 
-async function sendRequestToVoiceflow(userId, request) {
-  const { data } = await api.post(interactUrl(userId), { request }, { headers: vfHeaders() });
-  return data;
+    curEvent = '';
+    curId = '';
+    dataLines = [];
+
+    if (!raw) return;
+    let data = raw;
+    try {
+      data = JSON.parse(raw);
+    } catch {}
+    onEvent({ event: ev, id, data });
+  };
+
+  readable.on('data', (chunk) => {
+    buf += chunk.toString('utf8');
+
+    const parts = buf.split(/\r?\n/);
+    buf = parts.pop() || '';
+
+    for (const line of parts) {
+      if (!line) {
+        dispatch();
+        continue;
+      }
+      if (line.startsWith(':')) continue; // comment/keepalive
+      if (line.startsWith('event:')) {
+        curEvent = line.slice('event:'.length).trim();
+        continue;
+      }
+      if (line.startsWith('id:')) {
+        curId = line.slice('id:'.length).trim();
+        continue;
+      }
+      if (line.startsWith('data:')) {
+        dataLines.push(line.slice('data:'.length).trimStart());
+        continue;
+      }
+    }
+  });
+
+  readable.on('end', () => {
+    dispatch();
+    onEvent({ event: 'end-of-stream', data: null });
+  });
 }
 
 // =====================
@@ -136,6 +186,10 @@ function esc(s) {
 function normalizeSpacing(text) {
   if (!text) return '';
   return text.replace(/[ \t]+$/gm, '').replace(/\n{3,}/g, '\n\n').trim();
+}
+
+function hasCompleteSentence(text) {
+  return /[.!?]\s*$/.test(text.trim());
 }
 
 function isHttpUrl(s) {
@@ -221,7 +275,258 @@ function slateToText(slate) {
 }
 
 function textOfTrace(t) {
+  // Prefer payload.message for AI + non-AI text
   return t?.payload?.message ?? slateToText(t?.payload?.slate) ?? '';
+}
+
+// =====================
+// Telegram safe send/edit helpers (NO duplicate messages)
+// =====================
+async function safeReplyHtml(ctx, html, extra = {}) {
+  try {
+    return await ctx.reply(html, { parse_mode: 'HTML', disable_web_page_preview: true, ...extra });
+  } catch (e) {
+    try {
+      return await ctx.reply(stripTags(html), { disable_web_page_preview: true, ...extra });
+    } catch {
+      return null;
+    }
+  }
+}
+
+async function safeEditHtml(ctx, chatId, messageId, html, extra = {}) {
+  try {
+    await ctx.telegram.editMessageText(chatId, messageId, undefined, html, {
+      parse_mode: 'HTML',
+      disable_web_page_preview: true,
+      ...extra,
+    });
+    return true;
+  } catch (e) {
+    const m = String(e?.message || '');
+
+    if (/message is not modified|MESSAGE_NOT_MODIFIED/i.test(m)) return true;
+
+    // If HTML parsing fails, fallback to plain text EDIT (still same message)
+    if (/can't parse entities|Bad Request: can't parse entities/i.test(m)) {
+      try {
+        await ctx.telegram.editMessageText(chatId, messageId, undefined, stripTags(html), {
+          disable_web_page_preview: true,
+          ...extra,
+        });
+        return true;
+      } catch {}
+    }
+
+    if (DEBUG_STREAM) console.log('[tg-edit] failed:', m);
+    return false;
+  }
+}
+
+// =====================
+// Track last bot message (keyboard type)
+// keyboard: 'none' | 'choice' | 'card'
+// =====================
+const lastBotMsgByUser = new Map(); // userId -> { chatId, message_id, keyboard }
+
+// =====================
+// Completion streaming (single edited message)
+// =====================
+const completionStateByUser = new Map(); // userId -> state
+
+function defaultCompletionState() {
+  return {
+    msg: null,
+    lastHtml: '',
+    lastEditAt: 0,
+    timer: null,
+    pendingHtml: '',
+    accumulated: '',
+    active: false,
+    hasContent: false,
+    endedAt: 0,
+  };
+}
+
+// Works whether VF sends "delta chunks" OR "full cumulative text"
+function mergeCompletion(prev, incoming) {
+  const p = String(prev || '');
+  const n = String(incoming || '');
+  if (!n) return p;
+  if (!p) return n;
+
+  // If new is cumulative, just take it
+  if (n.startsWith(p)) return n;
+
+  // If new is shorter duplicate, keep prev
+  if (p.startsWith(n)) return p;
+
+  // Otherwise treat as delta and append
+  return p + n;
+}
+
+async function completionSendOrUpdate(ctx, userId, fullText, { force = false } = {}) {
+  const s = completionStateByUser.get(userId) || defaultCompletionState();
+  s.accumulated = String(fullText || '');
+  
+  const html = mdToHtml(String(s.accumulated || '').trim());
+  if (!html) {
+    completionStateByUser.set(userId, s);
+    return;
+  }
+
+  const now = Date.now();
+  const MIN_EDIT_MS = 150; // avoid Telegram edit rate limits
+
+  // Create message once - wait for at least 10 characters before showing
+  if (!s.msg) {
+    // Don't show message until we have meaningful content
+    if (html.length < 10) {
+      completionStateByUser.set(userId, s);
+      return;
+    }
+    
+    // ADD THIS LOGIC: Wait for complete sentence or enough content
+    const plainText = s.accumulated.trim();
+    if (!hasCompleteSentence(plainText) && plainText.length < 200) {
+      completionStateByUser.set(userId, s);
+      return; // Keep accumulating until we have a complete sentence or 200 chars
+    }
+    
+    const msg = await safeReplyHtml(ctx, html);
+    if (msg) {
+      s.msg = msg;
+      lastBotMsgByUser.set(userId, {
+        chatId: msg.chat.id,
+        message_id: msg.message_id,
+        keyboard: 'none'
+      });
+    }
+    s.lastHtml = html;
+    s.lastEditAt = now;
+    completionStateByUser.set(userId, s);
+    return;
+  }
+
+  // Skip if content hasn't changed (but allow force updates)
+  if (!force && html === s.lastHtml) {
+    return; // Don't even update state if nothing changed
+  }
+
+  const doEdit = async (nextHtml) => {
+    const ok = await safeEditHtml(ctx, s.msg.chat.id, s.msg.message_id, nextHtml);
+    if (ok) {
+      s.lastHtml = nextHtml;
+      s.lastEditAt = Date.now();
+      completionStateByUser.set(userId, s);
+    }
+  };
+
+  // Simple throttling: only edit if enough time has passed
+  if (force || now - s.lastEditAt >= MIN_EDIT_MS) {
+    if (s.timer) {
+      clearTimeout(s.timer);
+      s.timer = null;
+      s.pendingHtml = '';
+    }
+    await doEdit(html);
+    return;
+  }
+
+  s.pendingHtml = html;
+  completionStateByUser.set(userId, s);
+
+  if (!s.timer) {
+    s.timer = setTimeout(async () => {
+      const st = completionStateByUser.get(userId);
+      if (!st?.pendingHtml) {
+        if (st) st.timer = null;
+        return;
+      }
+      const pending = st.pendingHtml;
+      st.pendingHtml = '';
+      st.timer = null;
+      completionStateByUser.set(userId, st);
+      await doEdit(pending);
+    }, 50).unref();
+  }
+}
+
+async function completionFlush(ctx, userId) {
+  const s = completionStateByUser.get(userId);
+  if (!s?.msg) return null;
+
+  if (s.timer) {
+    clearTimeout(s.timer);
+    s.timer = null;
+  }
+
+  if (s.pendingHtml) {
+    const pending = s.pendingHtml;
+    s.pendingHtml = '';
+    completionStateByUser.set(userId, s);
+    await safeEditHtml(ctx, s.msg.chat.id, s.msg.message_id, pending);
+    s.lastHtml = pending;
+    s.lastEditAt = Date.now();
+    completionStateByUser.set(userId, s);
+  }
+
+  return { chatId: s.msg.chat.id, message_id: s.msg.message_id, keyboard: lastBotMsgByUser.get(userId)?.keyboard || 'none' };
+}
+
+// Real-time handler: ONLY completion traces (avoid duplicate text messages)
+async function handleTraceRealtime(ctx, trace) {
+  if (!trace || trace.type !== 'completion') return;
+  if (!VF_COMPLETION_TO_TELEGRAM) return;
+
+  const userId = ctx.from.id;
+  const state = trace.payload?.state;
+
+  const s = completionStateByUser.get(userId) || defaultCompletionState();
+
+  if (state === 'start') {
+    // New streaming message for this completion
+    if (s.timer) {
+      clearTimeout(s.timer);
+      s.timer = null;
+    }
+    s.msg = null;
+    s.lastHtml = '';
+    s.lastEditAt = 0;
+    s.pendingHtml = '';
+    s.accumulated = '';
+    s.active = true;
+    s.hasContent = false;
+    s.endedAt = 0;
+    completionStateByUser.set(userId, s);
+
+    if (DEBUG_STREAM) console.log('[completion] start');
+    return;
+  }
+
+if (state === 'content') {
+  const incoming = String(trace.payload?.content || '');
+  s.active = true;
+
+  s.accumulated = mergeCompletion(s.accumulated, incoming);
+  if (s.accumulated.trim()) s.hasContent = true;
+
+  completionStateByUser.set(userId, s);
+
+  // if (DEBUG_STREAM) console.log('[completion] content len=', s.accumulated.length); // ← Comment this out
+  await completionSendOrUpdate(ctx, userId, s.accumulated);
+  return;
+}
+
+  if (state === 'end') {
+    s.active = false;
+    s.endedAt = Date.now();
+    completionStateByUser.set(userId, s);
+
+    if (DEBUG_STREAM) console.log('[completion] end');
+    if (s.accumulated.trim()) await completionSendOrUpdate(ctx, userId, s.accumulated, { force: true });
+    return;
+  }
 }
 
 // =====================
@@ -573,6 +878,8 @@ function extractUrlFromButton(b) {
 
 function makeKeyboard(userId, buttons) {
   const rows = [];
+  let currentRow = [];
+
   for (const b of buttons) {
     const text = btnLabel(b);
     const url = extractUrlFromButton(b);
@@ -586,20 +893,36 @@ function makeKeyboard(userId, buttons) {
       });
     }
 
+    let buttonObj;
     if (url) {
-      rows.push([{ text, url }]);
-      continue;
+      buttonObj = { text, url };
+    } else {
+      let data = btnPayload(b) || text;
+      if (Buffer.byteLength(data, 'utf8') > 64) data = stashPut(userId, data);
+      buttonObj = { text, callback_data: data };
     }
 
-    let data = btnPayload(b) || text;
-    if (Buffer.byteLength(data, 'utf8') > 64) data = stashPut(userId, data);
-    rows.push([{ text, callback_data: data }]);
+    currentRow.push(buttonObj);
+
+    // Push row when we have 2 buttons
+    if (currentRow.length === 2) {
+      rows.push(currentRow);
+      currentRow = [];
+    }
   }
+
+  // Push any remaining button (odd number case)
+  if (currentRow.length > 0) {
+    rows.push(currentRow);
+  }
+
   return rows;
 }
 
 function makeCardV2Keyboard(userId, buttons = []) {
   const rows = [];
+  let currentRow = [];
+
   for (const b of buttons) {
     const label = String(b?.name ?? b?.request?.payload?.label ?? 'Option').slice(0, 64);
     const url = extractUrlFromButton(b);
@@ -613,15 +936,29 @@ function makeCardV2Keyboard(userId, buttons = []) {
       });
     }
 
+    let buttonObj;
     if (url) {
-      rows.push([{ text: label, url }]);
-      continue;
+      buttonObj = { text: label, url };
+    } else {
+      let data = `${REQUEST_PREFIX}${JSON.stringify(b?.request || {})}`;
+      if (Buffer.byteLength(data, 'utf8') > 64) data = stashPut(userId, data);
+      buttonObj = { text: label, callback_data: data };
     }
 
-    let data = `${REQUEST_PREFIX}${JSON.stringify(b?.request || {})}`;
-    if (Buffer.byteLength(data, 'utf8') > 64) data = stashPut(userId, data);
-    rows.push([{ text: label, callback_data: data }]);
+    currentRow.push(buttonObj);
+
+    // Push row when we have 2 buttons
+    if (currentRow.length === 2) {
+      rows.push(currentRow);
+      currentRow = [];
+    }
   }
+
+  // Push any remaining button (odd number case)
+  if (currentRow.length > 0) {
+    rows.push(currentRow);
+  }
+
   return rows;
 }
 
@@ -645,48 +982,48 @@ function keepTyping(ctx) {
 // =====================
 // Rendering
 // =====================
-/**
- * Track the last message AND whether we attached an inline keyboard to it.
- * This is critical to prevent VF 'choice' from overwriting card buttons.
- */
-const lastBotMsgByUser = new Map(); // userId -> { chatId, message_id, hasKeyboard }
 function tracesOf(vf) {
   return Array.isArray(vf) ? vf : Array.isArray(vf?.traces) ? vf.traces : [];
 }
 
 async function sendChoiceAsNewMessage(ctx, inlineKeyboard) {
   if (!inlineKeyboard?.length) return null;
-  return await ctx.reply('Choose an option:', { reply_markup: { inline_keyboard: inlineKeyboard } });
+  const msg = await ctx.reply('...', { reply_markup: { inline_keyboard: inlineKeyboard } });
+  if (msg) lastBotMsgByUser.set(ctx.from.id, { chatId: msg.chat.id, message_id: msg.message_id, keyboard: 'choice' });
+  return msg;
 }
 
 async function attachChoiceKeyboard(ctx, target, inlineKeyboard) {
-  if (!inlineKeyboard?.length) return false;
+  if (!inlineKeyboard?.length) return null;
 
-  // If target already has keyboard, do NOT overwrite it: send choice separately.
-  if (target?.hasKeyboard) {
-    await sendChoiceAsNewMessage(ctx, inlineKeyboard);
-    return true;
+  // If target is a CARD keyboard, don't overwrite; send separate choice message
+  if (target?.keyboard === 'card') {
+    const newMsg = await sendChoiceAsNewMessage(ctx, inlineKeyboard);
+    if (newMsg) return { chatId: newMsg.chat.id, message_id: newMsg.message_id, keyboard: 'choice' };
+    return null;
   }
 
+  // Otherwise, overwrite in place (even if previous was 'choice')
   if (target?.chatId && target?.message_id) {
     try {
       await ctx.telegram.editMessageReplyMarkup(target.chatId, target.message_id, undefined, {
         inline_keyboard: inlineKeyboard,
       });
-      return true;
+      const ref = { chatId: target.chatId, message_id: target.message_id, keyboard: 'choice' };
+      lastBotMsgByUser.set(ctx.from.id, ref);
+      return ref;
     } catch (e) {
       if (DEBUG_BUTTONS) console.log('[choice-edit] failed:', e?.message || e);
     }
   }
 
-  await sendChoiceAsNewMessage(ctx, inlineKeyboard);
-  return true;
+  const newMsg = await sendChoiceAsNewMessage(ctx, inlineKeyboard);
+  if (newMsg) return { chatId: newMsg.chat.id, message_id: newMsg.message_id, keyboard: 'choice' };
+  return null;
 }
 
 /**
- * Ensure card keyboard without creating duplicate "small button" messages:
- * - retry edit once or twice
- * - never send fallback choice message from here
+ * Ensure card keyboard without creating duplicate messages:
  */
 async function ensureKeyboardOnMessage(ctx, msg, inlineKeyboard) {
   if (!msg || !inlineKeyboard?.length) return false;
@@ -702,12 +1039,10 @@ async function ensureKeyboardOnMessage(ctx, msg, inlineKeyboard) {
     return true;
   } catch (e1) {
     const m1 = String(e1?.message || '');
-    // Telegram returns variants of "message is not modified" when markup already matches.
     if (/message is not modified|MESSAGE_NOT_MODIFIED/i.test(m1)) return true;
     if (DEBUG_BUTTONS) console.log('[ensure-edit] failed(1):', m1);
   }
 
-  // short delay and retry once (helps with last-message timing)
   await new Promise((r) => setTimeout(r, 200));
 
   try {
@@ -726,8 +1061,9 @@ async function renderTextChoiceGalleryAndButtonsLast(ctx, raw, maybeChoice) {
   const { head, items, tail } = parseGalleryBlocks(raw);
 
   if (head) {
-    lastMsg = await ctx.reply(mdToHtml(head), { parse_mode: 'HTML', disable_web_page_preview: true });
-    if (lastMsg) lastBotMsgByUser.set(ctx.from.id, { chatId: lastMsg.chat.id, message_id: lastMsg.message_id, hasKeyboard: false });
+    lastMsg = await safeReplyHtml(ctx, mdToHtml(head));
+    if (lastMsg)
+      lastBotMsgByUser.set(ctx.from.id, { chatId: lastMsg.chat.id, message_id: lastMsg.message_id, keyboard: 'none' });
   }
 
   for (const it of items) {
@@ -737,21 +1073,31 @@ async function renderTextChoiceGalleryAndButtonsLast(ctx, raw, maybeChoice) {
     const msg = await sendMediaWithCaption(ctx, it.imageUrl, caption);
     if (msg) {
       lastMsg = msg;
-      lastBotMsgByUser.set(ctx.from.id, { chatId: msg.chat.id, message_id: msg.message_id, hasKeyboard: false });
+      lastBotMsgByUser.set(ctx.from.id, { chatId: msg.chat.id, message_id: msg.message_id, keyboard: 'none' });
     }
   }
 
   if (tail) {
-    lastMsg = await ctx.reply(mdToHtml(tail), { parse_mode: 'HTML', disable_web_page_preview: true });
-    if (lastMsg) lastBotMsgByUser.set(ctx.from.id, { chatId: lastMsg.chat.id, message_id: lastMsg.message_id, hasKeyboard: false });
+    lastMsg = await safeReplyHtml(ctx, mdToHtml(tail));
+    if (lastMsg)
+      lastBotMsgByUser.set(ctx.from.id, { chatId: lastMsg.chat.id, message_id: lastMsg.message_id, keyboard: 'none' });
+  }
+
+  // If nothing was sent (rare edge case), send the raw text
+  if (!lastMsg && raw.trim()) {
+    lastMsg = await safeReplyHtml(ctx, mdToHtml(raw));
+    if (lastMsg)
+      lastBotMsgByUser.set(ctx.from.id, { chatId: lastMsg.chat.id, message_id: lastMsg.message_id, keyboard: 'none' });
   }
 
   let consumed = false;
   const buttons = maybeChoice?.payload?.buttons || [];
   if (buttons.length) {
     const kb = makeKeyboard(ctx.from.id, buttons);
+
+    // Attach to the last message we just sent (preferred)
     const target = lastMsg
-      ? { chatId: lastMsg.chat.id, message_id: lastMsg.message_id, hasKeyboard: false }
+      ? { chatId: lastMsg.chat.id, message_id: lastMsg.message_id, keyboard: 'none' }
       : lastBotMsgByUser.get(ctx.from.id) || null;
 
     await attachChoiceKeyboard(ctx, target, kb);
@@ -762,23 +1108,41 @@ async function renderTextChoiceGalleryAndButtonsLast(ctx, raw, maybeChoice) {
 }
 
 async function sendVFToTelegram(ctx, vfResp) {
+  const userId = ctx.from.id;
   const traces = tracesOf(vfResp);
-  let lastMsgOverall = lastBotMsgByUser.get(ctx.from.id) || null;
+  let lastMsgOverall = lastBotMsgByUser.get(userId) || null;
+
+  // If we streamed an AI completion recently, we'll skip the duplicate AI "text" trace
+  const comp = completionStateByUser.get(userId);
+  const hasRecentCompletionMsg =
+    !!comp?.msg && !!comp?.accumulated?.trim() && (comp.active || (comp.endedAt && Date.now() - comp.endedAt < 90_000));
 
   for (let i = 0; i < traces.length; i += 1) {
     const t = traces[i];
     if (!t) continue;
 
     if (t.type === 'text') {
+      const isAi = t?.payload?.ai === true;
+
+      // If we streamed this AI response via completion events, don't send it again
+      if (isAi && VF_COMPLETION_TO_TELEGRAM && hasRecentCompletionMsg) {
+        // But keep lastMsgOverall aligned to the streaming message
+        const lb = lastBotMsgByUser.get(userId);
+        if (lb) lastMsgOverall = lb;
+        continue;
+      }
+
       const raw = textOfTrace(t).trim();
+      if (!raw) continue;
+
       const next = traces[i + 1];
       const { consumed } = await renderTextChoiceGalleryAndButtonsLast(ctx, raw, next?.type === 'choice' ? next : null);
       if (consumed) {
         i += 1;
-        lastMsgOverall = lastBotMsgByUser.get(ctx.from.id) || lastMsgOverall;
+        lastMsgOverall = lastBotMsgByUser.get(userId) || lastMsgOverall;
         continue;
       }
-      lastMsgOverall = lastBotMsgByUser.get(ctx.from.id) || lastMsgOverall;
+      lastMsgOverall = lastBotMsgByUser.get(userId) || lastMsgOverall;
       continue;
     }
 
@@ -786,10 +1150,18 @@ async function sendVFToTelegram(ctx, vfResp) {
       const buttons = t.payload?.buttons || [];
       if (!buttons.length) continue;
 
-      const kb = makeKeyboard(ctx.from.id, buttons);
-      const target = lastMsgOverall || lastBotMsgByUser.get(ctx.from.id) || null;
+      // Ensure streaming edits are flushed before attaching buttons
+      await completionFlush(ctx, userId);
 
-      await attachChoiceKeyboard(ctx, target, kb);
+      const kb = makeKeyboard(userId, buttons);
+
+      // Prefer the most recent bot message (streaming message sets this)
+      const target = lastBotMsgByUser.get(userId) || lastMsgOverall || null;
+
+      const attached = await attachChoiceKeyboard(ctx, target, kb);
+      if (attached) lastMsgOverall = attached;
+      else lastMsgOverall = lastBotMsgByUser.get(userId) || lastMsgOverall;
+
       continue;
     }
 
@@ -799,8 +1171,8 @@ async function sendVFToTelegram(ctx, vfResp) {
       if (url) {
         const msg = await sendMediaWithCaption(ctx, url, undefined);
         if (msg) {
-          lastMsgOverall = { chatId: msg.chat.id, message_id: msg.message_id, hasKeyboard: false };
-          lastBotMsgByUser.set(ctx.from.id, lastMsgOverall);
+          lastMsgOverall = { chatId: msg.chat.id, message_id: msg.message_id, keyboard: 'none' };
+          lastBotMsgByUser.set(userId, lastMsgOverall);
         }
       }
       continue;
@@ -810,31 +1182,23 @@ async function sendVFToTelegram(ctx, vfResp) {
     if (t.type === 'cardV2') {
       const title = t.payload?.title || '';
       const descText =
-        (typeof t.payload?.description === 'string'
-          ? t.payload?.description
-          : t.payload?.description?.text) || '';
+        (typeof t.payload?.description === 'string' ? t.payload?.description : t.payload?.description?.text) || '';
       const mediaUrl = t.payload?.imageUrl || '';
 
       const buttons = Array.isArray(t.payload?.buttons) ? t.payload.buttons : [];
-      const kb = buttons.length ? makeCardV2Keyboard(ctx.from.id, buttons) : null;
+      const kb = buttons.length ? makeCardV2Keyboard(userId, buttons) : null;
       const replyMarkup = kb ? { inline_keyboard: kb } : null;
 
       let msgRef = null;
 
-      // Keep existing behavior: description text as separate message when both desc+media exist.
       if (descText && mediaUrl) {
-        msgRef = await ctx.reply(mdToHtml(normalizeSpacing(descText)), {
-          parse_mode: 'HTML',
-          disable_web_page_preview: true,
-        });
+        msgRef = await safeReplyHtml(ctx, mdToHtml(normalizeSpacing(descText)));
         if (msgRef) {
-          lastMsgOverall = { chatId: msgRef.chat.id, message_id: msgRef.message_id, hasKeyboard: false };
-          lastBotMsgByUser.set(ctx.from.id, lastMsgOverall);
+          lastMsgOverall = { chatId: msgRef.chat.id, message_id: msgRef.message_id, keyboard: 'none' };
+          lastBotMsgByUser.set(userId, lastMsgOverall);
         }
       } else if (!mediaUrl && (title || descText)) {
-        msgRef = await ctx.reply(mdToHtml(normalizeSpacing([title, descText].filter(Boolean).join('\n\n'))), {
-          parse_mode: 'HTML',
-          disable_web_page_preview: true,
+        msgRef = await safeReplyHtml(ctx, mdToHtml(normalizeSpacing([title, descText].filter(Boolean).join('\n\n'))), {
           reply_markup: replyMarkup || undefined,
         });
       }
@@ -851,8 +1215,8 @@ async function sendVFToTelegram(ctx, vfResp) {
 
       if (msgRef) {
         if (kb?.length) await ensureKeyboardOnMessage(ctx, msgRef, kb);
-        lastMsgOverall = { chatId: msgRef.chat.id, message_id: msgRef.message_id, hasKeyboard: !!kb?.length };
-        lastBotMsgByUser.set(ctx.from.id, lastMsgOverall);
+        lastMsgOverall = { chatId: msgRef.chat.id, message_id: msgRef.message_id, keyboard: kb?.length ? 'card' : 'none' };
+        lastBotMsgByUser.set(userId, lastMsgOverall);
       }
 
       continue;
@@ -873,18 +1237,18 @@ async function sendVFToTelegram(ctx, vfResp) {
       }
 
       if (topText) {
-        const msg = await ctx.reply(mdToHtml(topText), { parse_mode: 'HTML', disable_web_page_preview: true });
+        const msg = await safeReplyHtml(ctx, mdToHtml(topText));
         if (msg) {
-          lastMsgOverall = { chatId: msg.chat.id, message_id: msg.message_id, hasKeyboard: false };
-          lastBotMsgByUser.set(ctx.from.id, lastMsgOverall);
+          lastMsgOverall = { chatId: msg.chat.id, message_id: msg.message_id, keyboard: 'none' };
+          lastBotMsgByUser.set(userId, lastMsgOverall);
         }
       }
 
       if (mediaUrl) {
         const mediaMsg = await sendMediaWithCaption(ctx, mediaUrl, title ? mdToHtml(title) : undefined);
         if (mediaMsg) {
-          lastMsgOverall = { chatId: mediaMsg.chat.id, message_id: mediaMsg.message_id, hasKeyboard: false };
-          lastBotMsgByUser.set(ctx.from.id, lastMsgOverall);
+          lastMsgOverall = { chatId: mediaMsg.chat.id, message_id: mediaMsg.message_id, keyboard: 'none' };
+          lastBotMsgByUser.set(userId, lastMsgOverall);
         }
       }
       continue;
@@ -904,30 +1268,29 @@ async function sendVFToTelegram(ctx, vfResp) {
         const captionHtml = mdToHtml(normalizeSpacing([title, desc].filter(Boolean).join('\n\n'))) || undefined;
 
         const buttons = Array.isArray(c.buttons) ? c.buttons : [];
-        const kb = buttons.length ? makeCardV2Keyboard(ctx.from.id, buttons) : null;
+        const kb = buttons.length ? makeCardV2Keyboard(userId, buttons) : null;
         const replyMarkup = kb ? { inline_keyboard: kb } : null;
 
         let msgRef = null;
         if (mediaUrl) {
           msgRef = await sendMediaWithCaption(ctx, mediaUrl, captionHtml, replyMarkup || undefined);
         } else if (captionHtml) {
-          msgRef = await ctx.reply(captionHtml, {
-            parse_mode: 'HTML',
-            disable_web_page_preview: true,
-            reply_markup: replyMarkup || undefined,
-          });
+          msgRef = await safeReplyHtml(ctx, captionHtml, { reply_markup: replyMarkup || undefined });
         }
 
         if (msgRef) {
           if (kb?.length) await ensureKeyboardOnMessage(ctx, msgRef, kb);
-          lastMsgOverall = { chatId: msgRef.chat.id, message_id: msgRef.message_id, hasKeyboard: !!kb?.length };
-          lastBotMsgByUser.set(ctx.from.id, lastMsgOverall);
+          lastMsgOverall = { chatId: msgRef.chat.id, message_id: msgRef.message_id, keyboard: kb?.length ? 'card' : 'none' };
+          lastBotMsgByUser.set(userId, lastMsgOverall);
         }
 
         await new Promise((r) => setTimeout(r, 250));
       }
       continue;
     }
+
+    // Ignore completion traces here (handled realtime)
+    if (t.type === 'completion') continue;
   }
 }
 
@@ -962,12 +1325,72 @@ async function maybeAutoResetLaunch(ctx) {
   const userId = ctx.from.id;
   if (shouldResetConversationFor(userId)) {
     await resetVoiceflow(userId);
-    const vf = await launchVoiceflow(userId);
-    await sendVFToTelegram(ctx, vf);
+    const traces = await launchVoiceflow(ctx, userId);
+    await sendVFToTelegram(ctx, traces);
     touchSession(userId);
     return true;
   }
   return false;
+}
+
+// =====================
+// Streaming interaction
+// =====================
+async function streamVoiceflowInteraction(ctx, userId, action) {
+  const res = await api.post(
+    streamUrl(userId),
+    { action },
+    {
+      headers: vfHeaders({ stream: true }),
+      responseType: 'stream',
+    }
+  );
+
+  const traces = [];
+  let finished = false;
+
+  // Force realtime completion processing to be sequential,
+  // and WAIT for it before returning (prevents races with buttons)
+  let realtimeChain = Promise.resolve();
+
+  const finish = async (resolve) => {
+    if (finished) return;
+    finished = true;
+    try {
+      await realtimeChain;
+    } catch {}
+    resolve(traces);
+  };
+
+  return await new Promise((resolve, reject) => {
+    parseSseStream(res.data, ({ event, data }) => {
+      if (event === 'trace' && data && typeof data === 'object') {
+        traces.push(data);
+        realtimeChain = realtimeChain.then(() => handleTraceRealtime(ctx, data)).catch(() => {});
+        return;
+      }
+      if (event === 'end' || event === 'end-of-stream') {
+        finish(resolve).catch(() => resolve(traces));
+      }
+    });
+
+    res.data.on('error', (err) => reject(err));
+    res.data.on('end', () => {
+      finish(resolve).catch(() => resolve(traces));
+    });
+  });
+}
+
+async function launchVoiceflow(ctx, userId) {
+  return await streamVoiceflowInteraction(ctx, userId, { type: 'launch' });
+}
+
+async function interactVoiceflow(ctx, userId, text) {
+  return await streamVoiceflowInteraction(ctx, userId, { type: 'text', payload: text });
+}
+
+async function sendRequestToVoiceflow(ctx, userId, request) {
+  return await streamVoiceflowInteraction(ctx, userId, request);
 }
 
 // =====================
@@ -992,8 +1415,8 @@ bot.start(
     await resetVoiceflow(userId);
     const stop = keepTyping(ctx);
     try {
-      const vf = await launchVoiceflow(userId);
-      await sendVFToTelegram(ctx, vf);
+      const traces = await launchVoiceflow(ctx, userId);
+      await sendVFToTelegram(ctx, traces);
       touchSession(userId);
     } finally {
       stop();
@@ -1008,8 +1431,8 @@ bot.hears(
     await resetVoiceflow(userId);
     const stop = keepTyping(ctx);
     try {
-      const vf = await launchVoiceflow(userId);
-      await sendVFToTelegram(ctx, vf);
+      const traces = await launchVoiceflow(ctx, userId);
+      await sendVFToTelegram(ctx, traces);
       touchSession(userId);
     } finally {
       stop();
@@ -1036,8 +1459,8 @@ bot.on(
     if (typeof data === 'string' && data.startsWith(REQUEST_PREFIX)) {
       try {
         const req = JSON.parse(data.slice(REQUEST_PREFIX.length));
-        const vfResp = await sendRequestToVoiceflow(userId, req);
-        await sendVFToTelegram(ctx, vfResp);
+        const traces = await sendRequestToVoiceflow(ctx, userId, req);
+        await sendVFToTelegram(ctx, traces);
         touchSession(userId);
         stop();
         return;
@@ -1048,8 +1471,8 @@ bot.on(
       try {
         const obj = JSON.parse(data);
         if (obj && typeof obj === 'object' && obj.type) {
-          const vfResp = await sendRequestToVoiceflow(userId, obj);
-          await sendVFToTelegram(ctx, vfResp);
+          const traces = await sendRequestToVoiceflow(ctx, userId, obj);
+          await sendVFToTelegram(ctx, traces);
           touchSession(userId);
           stop();
           return;
@@ -1059,8 +1482,8 @@ bot.on(
 
     if (typeof data !== 'string') data = String(data ?? '');
     try {
-      const vfResp = await interactVoiceflow(userId, data);
-      await sendVFToTelegram(ctx, vfResp);
+      const traces = await interactVoiceflow(ctx, userId, data);
+      await sendVFToTelegram(ctx, traces);
       touchSession(userId);
     } finally {
       stop();
@@ -1083,8 +1506,8 @@ bot.on(
     }
 
     try {
-      const vfResp = await interactVoiceflow(userId, text);
-      await sendVFToTelegram(ctx, vfResp);
+      const traces = await interactVoiceflow(ctx, userId, text);
+      await sendVFToTelegram(ctx, traces);
       touchSession(userId);
     } finally {
       stop();
@@ -1096,7 +1519,7 @@ bot.on(
 // START
 // =====================
 bot.launch({ polling: { timeout: 60 } });
-console.log('✅ Telegram ↔ Voiceflow bridge running');
+console.log('✅ Telegram ↔ Voiceflow bridge running (STREAMING)');
 
 bot.catch((err, ctx) => {
   console.error('❌ Telegraf caught error for update:', JSON.stringify(ctx.update || {}));
