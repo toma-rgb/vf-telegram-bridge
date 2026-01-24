@@ -241,6 +241,14 @@ function linkifyBareUrlsToMarkdown(raw) {
   return s.replace(/(^|[\s>])((https?:\/\/)[^\s)<]+)(?=$|[\s<])/gi, (m, pre, url) => `${pre}[${url}](${url})`);
 }
 
+function extractCalendlyUrl(text) {
+  if (!text) return null;
+  // Look for calendly.com/... - even inside src="URL" or similar
+  const re = /https:\/\/calendly\.com\/[^\s"'>]+/i;
+  const match = text.match(re);
+  return match ? match[0].trim() : null;
+}
+
 // Markdown → Telegram HTML (bold/italic + hyperlinks ONLY)
 function mdToHtml(input) {
   if (!input) return '';
@@ -1072,7 +1080,32 @@ async function ensureKeyboardOnMessage(ctx, msg, inlineKeyboard) {
 
 async function renderTextChoiceGalleryAndButtonsLast(ctx, raw, maybeChoice) {
   let lastMsg = null;
-  const { head, items, tail } = parseGalleryBlocks(raw);
+  let textToDisplay = raw;
+
+  // Handle inline Calendly links/iframes
+  const calendlyUrl = extractCalendlyUrl(raw);
+  let syntheticCalendlyButton = null;
+
+  if (calendlyUrl && CALENDLY_MINI_APP_URL) {
+    // 1) Clean the text (remove the iframe code if it exists)
+    const iframeRe = /<iframe[^>]*src=["']https:\/\/calendly\.com\/[^"']*["'][^>]*>.*?<\/iframe>/gi;
+    textToDisplay = raw.replace(iframeRe, '').trim();
+
+    // 2) If the text is now empty (because it was only an iframe), provide a prompt
+    if (!textToDisplay) {
+      textToDisplay = 'Please use the button below to complete your booking:';
+    }
+
+    // 3) Create the button
+    syntheticCalendlyButton = {
+      name: '📅 Book Now',
+      request: {
+        url: calendlyUrl,
+      },
+    };
+  }
+
+  const { head, items, tail } = parseGalleryBlocks(textToDisplay);
 
   if (head) {
     lastMsg = await safeReplyHtml(ctx, mdToHtml(head));
@@ -1105,7 +1138,16 @@ async function renderTextChoiceGalleryAndButtonsLast(ctx, raw, maybeChoice) {
   }
 
   let consumed = false;
-  const buttons = maybeChoice?.payload?.buttons || [];
+  let buttons = maybeChoice?.payload?.buttons ? [...maybeChoice.payload.buttons] : [];
+
+  // Add our synthetic button if we found a Calendly link
+  if (syntheticCalendlyButton) {
+    // Check if it already exists (unlikely but safe)
+    if (!buttons.some((b) => extractUrlFromButton(b)?.includes('calendly.com'))) {
+      buttons.unshift(syntheticCalendlyButton);
+    }
+  }
+
   if (buttons.length) {
     const kb = makeKeyboard(ctx.from.id, buttons);
 
