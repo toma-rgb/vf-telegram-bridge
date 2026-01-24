@@ -1087,6 +1087,7 @@ async function renderTextChoiceGalleryAndButtonsLast(ctx, raw, maybeChoice) {
   let syntheticCalendlyButton = null;
 
   if (calendlyUrl && CALENDLY_MINI_APP_URL) {
+    console.log('[calendly] Found URL:', calendlyUrl);
     // 1) Clean the text (remove the iframe code or bare link)
     // The [^]* matches any character including newlines
     const iframeRe = /<iframe[^>]*src=["']https:\/\/calendly\.com\/[^"']*["'][^>]*>[^]*?<\/iframe>/gi;
@@ -1109,6 +1110,9 @@ async function renderTextChoiceGalleryAndButtonsLast(ctx, raw, maybeChoice) {
         url: calendlyUrl,
       },
     };
+    console.log('[calendly] Created synthetic button:', syntheticCalendlyButton);
+  } else if (calendlyUrl) {
+    console.warn('[calendly] Found URL but CALENDLY_MINI_APP_URL is missing or empty!');
   }
 
   const { head, items, tail } = parseGalleryBlocks(textToDisplay);
@@ -1148,14 +1152,19 @@ async function renderTextChoiceGalleryAndButtonsLast(ctx, raw, maybeChoice) {
 
   // Add our synthetic button if we found a Calendly link
   if (syntheticCalendlyButton) {
+    console.log('[calendly] Active buttons before unshift:', buttons.length);
     // Check if it already exists (unlikely but safe)
     if (!buttons.some((b) => extractUrlFromButton(b)?.includes('calendly.com'))) {
       buttons.unshift(syntheticCalendlyButton);
+      console.log('[calendly] Success: Unshifted button. Total now:', buttons.length);
+    } else {
+      console.log('[calendly] Button skipped because it already exists in the choice trace.');
     }
   }
 
   if (buttons.length) {
     const kb = makeKeyboard(ctx.from.id, buttons);
+    console.log('[calendly] Assembly keyboard with', buttons.length, 'buttons. Final row count:', kb.length);
 
     // Attach to the last message we just sent (preferred)
     const target = lastMsg
