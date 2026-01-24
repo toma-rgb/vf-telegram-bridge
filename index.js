@@ -50,6 +50,7 @@ if (!TELEGRAM_BOT_TOKEN || !VF_API_KEY || !VF_PROJECT_ID) {
 
 // Tripled handler timeout (helps on slow VF turns)
 const bot = new Telegraf(TELEGRAM_BOT_TOKEN, { handlerTimeout: 45_000 });
+console.log(`[system] Bot starting (PID: ${process.pid}) at ${new Date().toISOString()}`);
 console.log(
   (VF_USE_VERSION_HEADER
     ? `🔒 VF pinned versionID=${VF_VERSION_ID || '(empty)'}`
@@ -1087,7 +1088,7 @@ async function renderTextChoiceGalleryAndButtonsLast(ctx, raw, maybeChoice) {
   let syntheticCalendlyButton = null;
 
   if (calendlyUrl && CALENDLY_MINI_APP_URL) {
-    console.log('[calendly] Found URL:', calendlyUrl);
+    if (DEBUG_BUTTONS) console.log('[calendly] Found URL:', calendlyUrl);
     // 1) Clean the text (remove the iframe code or bare link)
     // The [^]* matches any character including newlines
     const iframeRe = /<iframe[^>]*src=["']https:\/\/calendly\.com\/[^"']*["'][^>]*>[^]*?<\/iframe>/gi;
@@ -1110,7 +1111,7 @@ async function renderTextChoiceGalleryAndButtonsLast(ctx, raw, maybeChoice) {
         url: calendlyUrl,
       },
     };
-    console.log('[calendly] Created synthetic button:', syntheticCalendlyButton);
+    if (DEBUG_BUTTONS) console.log('[calendly] Created synthetic button:', syntheticCalendlyButton);
   } else if (calendlyUrl) {
     console.warn('[calendly] Found URL but CALENDLY_MINI_APP_URL is missing or empty!');
   }
@@ -1123,57 +1124,104 @@ async function renderTextChoiceGalleryAndButtonsLast(ctx, raw, maybeChoice) {
       lastBotMsgByUser.set(ctx.from.id, { chatId: lastMsg.chat.id, message_id: lastMsg.message_id, keyboard: 'none' });
   }
 
-  for (const it of items) {
-    const titleHtml = mdToHtml(it.title || '');
-    const menuHtml = it.menuUrl ? `\n<a href="${esc(it.menuUrl)}">View Menu</a>` : '';
-    const caption = (titleHtml + menuHtml).trim();
-    const msg = await sendMediaWithCaption(ctx, it.imageUrl, caption);
-    if (msg) {
-      lastMsg = msg;
-      lastBotMsgByUser.set(ctx.from.id, { chatId: msg.chat.id, message_id: msg.message_id, keyboard: 'none' });
-    }
-  }
-
-  if (tail) {
-    lastMsg = await safeReplyHtml(ctx, mdToHtml(tail));
-    if (lastMsg)
-      lastBotMsgByUser.set(ctx.from.id, { chatId: lastMsg.chat.id, message_id: lastMsg.message_id, keyboard: 'none' });
-  }
-
-  // If nothing was sent (rare edge case), send the raw text
-  if (!lastMsg && raw.trim()) {
-    lastMsg = await safeReplyHtml(ctx, mdToHtml(raw));
-    if (lastMsg)
-      lastBotMsgByUser.set(ctx.from.id, { chatId: lastMsg.chat.id, message_id: lastMsg.message_id, keyboard: 'none' });
-  }
-
   let consumed = false;
   let buttons = maybeChoice?.payload?.buttons ? [...maybeChoice.payload.buttons] : [];
 
   // Add our synthetic button if we found a Calendly link
   if (syntheticCalendlyButton) {
-    console.log('[calendly] Active buttons before unshift:', buttons.length);
+    if (DEBUG_BUTTONS) console.log('[calendly] Active buttons before unshift:', buttons.length);
     // Check if it already exists (unlikely but safe)
     if (!buttons.some((b) => extractUrlFromButton(b)?.includes('calendly.com'))) {
       buttons.unshift(syntheticCalendlyButton);
-      console.log('[calendly] Success: Unshifted button. Total now:', buttons.length);
+      if (DEBUG_BUTTONS) console.log('[calendly] Success: Unshifted button. Total now:', buttons.length);
     } else {
-      console.log('[calendly] Button skipped because it already exists in the choice trace.');
+      if (DEBUG_BUTTONS) console.log('[calendly] Button skipped because it already exists in the choice trace.');
     }
   }
 
+  // PREPARE THE KEYBOARD FIRST
+  let kb = null;
   if (buttons.length) {
-    const kb = makeKeyboard(ctx.from.id, buttons);
-    console.log('[calendly] Assembly keyboard with', buttons.length, 'buttons. Final row count:', kb.length);
+    const rows = makeKeyboard(ctx.from.id, buttons);
+    if (rows.length) {
+      kb = { inline_keyboard: rows };
+      if (DEBUG_BUTTONS) console.log('[calendly] Assembly keyboard with', buttons.length, 'buttons. Final row count:', rows.length);
+    }
+  }
 
-    // Attach to the last message we just sent (preferred)
+  // HEAD
+  if (head) {
+    // If there's NO items and NO tail, attach the keyboard HERE
+    const attachToHead = !items.length && !tail;
+    lastMsg = await safeReplyHtml(ctx, mdToHtml(head), attachToHead && kb ? { reply_markup: kb } : {});
+    if (lastMsg) {
+      lastBotMsgByUser.set(ctx.from.id, {
+        chatId: lastMsg.chat.id,
+        message_id: lastMsg.message_id,
+        keyboard: attachToHead && kb ? 'choice' : 'none'
+      });
+      if (attachToHead && kb) consumed = !!maybeChoice?.payload?.buttons?.length;
+    }
+  }
+
+  // ITEMS
+  for (let i = 0; i < items.length; i++) {
+    const it = items[i];
+    const titleHtml = mdToHtml(it.title || '');
+    const menuHtml = it.menuUrl ? `\n<a href="${esc(it.menuUrl)}">View Menu</a>` : '';
+    const caption = (titleHtml + menuHtml).trim();
+
+    // Attach keyboard to the VERY LAST item if there's no tail
+    const isLastItem = i === items.length - 1;
+    const attachToItem = isLastItem && !tail;
+
+    const msg = await sendMediaWithCaption(ctx, it.imageUrl, caption, attachToItem && kb ? kb : undefined);
+    if (msg) {
+      lastMsg = msg;
+      lastBotMsgByUser.set(ctx.from.id, {
+        chatId: msg.chat.id,
+        message_id: msg.message_id,
+        keyboard: attachToItem && kb ? 'choice' : 'none'
+      });
+      if (attachToItem && kb) consumed = !!maybeChoice?.payload?.buttons?.length;
+    }
+  }
+
+  // TAIL
+  if (tail) {
+    // Attach keyboard HERE (tail is always last)
+    lastMsg = await safeReplyHtml(ctx, mdToHtml(tail), kb ? { reply_markup: kb } : {});
+    if (lastMsg) {
+      lastBotMsgByUser.set(ctx.from.id, {
+        chatId: lastMsg.chat.id,
+        message_id: lastMsg.message_id,
+        keyboard: kb ? 'choice' : 'none'
+      });
+      if (kb) consumed = !!maybeChoice?.payload?.buttons?.length;
+    }
+  }
+
+  // FALLBACK (nothing sent yet)
+  if (!lastMsg && textToDisplay.trim()) {
+    lastMsg = await safeReplyHtml(ctx, mdToHtml(textToDisplay), kb ? { reply_markup: kb } : {});
+    if (lastMsg) {
+      lastBotMsgByUser.set(ctx.from.id, {
+        chatId: lastMsg.chat.id,
+        message_id: lastMsg.message_id,
+        keyboard: kb ? 'choice' : 'none'
+      });
+      if (kb) consumed = !!maybeChoice?.payload?.buttons?.length;
+    }
+  }
+
+  // If we had buttons but didn't "consume" them yet (meaning we didn't attach them to a message)
+  // this would be extremely rare with logic above, but for safety:
+  if (kb && !consumed) {
     const target = lastMsg
       ? { chatId: lastMsg.chat.id, message_id: lastMsg.message_id, keyboard: 'none' }
       : lastBotMsgByUser.get(ctx.from.id) || null;
 
-    await attachChoiceKeyboard(ctx, target, kb);
-
-    // CRITICAL FIX: Only set consumed = true if we actually "stole" the buttons from a real choice trace
+    await attachChoiceKeyboard(ctx, target, kb.inline_keyboard);
     if (maybeChoice?.payload?.buttons?.length) {
       consumed = true;
     }
