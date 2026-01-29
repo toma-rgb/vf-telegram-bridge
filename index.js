@@ -10,6 +10,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { Telegraf } from 'telegraf';
 import { randomUUID } from 'crypto';
+import OpenAI from 'openai';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -20,6 +21,7 @@ const __dirname = path.dirname(__filename);
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const VF_API_KEY = process.env.VF_API_KEY;
 const VF_PROJECT_ID = process.env.VF_PROJECT_ID;
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
 const VF_VERSION_ID = process.env.VF_VERSION_ID || '';
 const VF_USE_VERSION_HEADER = /^true$/i.test(process.env.VF_USE_VERSION_HEADER || '');
@@ -41,6 +43,7 @@ const LOCAL_UTC_OFFSET_HOURS = parseFloat(process.env.LOCAL_UTC_OFFSET_HOURS || 
 const MEDIA_CACHE_PATH = process.env.MEDIA_CACHE_PATH || path.join(__dirname, 'media-cache.json');
 const MEDIA_CACHE_MAX_ENTRIES = parseInt(process.env.MEDIA_CACHE_MAX_ENTRIES || '1000', 10);
 const CALENDLY_MINI_APP_URL = process.env.CALENDLY_MINI_APP_URL || ''; // Link to your hosted calendly.html
+const DEBUG_STT = /^true$/i.test(process.env.DEBUG_STT || '');
 
 
 if (!TELEGRAM_BOT_TOKEN || !VF_API_KEY || !VF_PROJECT_ID) {
@@ -50,6 +53,7 @@ if (!TELEGRAM_BOT_TOKEN || !VF_API_KEY || !VF_PROJECT_ID) {
 
 // Tripled handler timeout (helps on slow VF turns)
 const bot = new Telegraf(TELEGRAM_BOT_TOKEN, { handlerTimeout: 45_000 });
+const openai = OPENAI_API_KEY ? new OpenAI({ apiKey: OPENAI_API_KEY }) : null;
 console.log(`[system] Bot starting (PID: ${process.pid}) at ${new Date().toISOString()}`);
 console.log(
   (VF_USE_VERSION_HEADER
@@ -1619,6 +1623,66 @@ bot.on(
       const traces = await interactVoiceflow(ctx, userId, data);
       await sendVFToTelegram(ctx, traces);
       touchSession(userId);
+    } finally {
+      stop();
+    }
+  })
+);
+
+bot.on(
+  'voice',
+  wrap(async (ctx) => {
+    const userId = ctx.from.id;
+    const voice = ctx.message.voice;
+
+    if (!openai) {
+      return await ctx.reply('Voice messages are not supported (OpenAI STT not configured).');
+    }
+
+    const stop = keepTyping(ctx);
+
+    if (await maybeAutoResetLaunch(ctx)) {
+      stop();
+      return;
+    }
+
+    try {
+      if (DEBUG_STT) console.log('[stt] downloading voice file:', voice.file_id);
+
+      const fileLink = await ctx.telegram.getFileLink(voice.file_id);
+      const response = await api.get(fileLink.toString(), { responseType: 'arraybuffer' });
+      const buffer = Buffer.from(response.data);
+
+      // Save to temp file because OpenAI Whisper SDK requires a real file or a specific stream format
+      const tempPath = path.join(__dirname, `voice_${userId}_${Date.now()}.ogg`);
+      fs.writeFileSync(tempPath, buffer);
+
+      if (DEBUG_STT) console.log('[stt] transcribing...');
+      const transcription = await openai.audio.transcriptions.create({
+        file: fs.createReadStream(tempPath),
+        model: 'whisper-1',
+      });
+
+      // Cleanup
+      try { fs.unlinkSync(tempPath); } catch { }
+
+      const text = transcription.text;
+      if (DEBUG_STT) console.log('[stt] transcription:', text);
+
+      if (!text || !text.trim()) {
+        await ctx.reply("Sorry, I couldn't hear what you said. Could you try again?");
+        return;
+      }
+
+      // Optional: Inform the user what we heard (can be annoying, but helpful for debugging/transparency)
+      // await ctx.reply(`<i>" ${text} "</i>`, { parse_mode: 'HTML' });
+
+      const traces = await interactVoiceflow(ctx, userId, text);
+      await sendVFToTelegram(ctx, traces);
+      touchSession(userId);
+    } catch (err) {
+      console.error('❌ STT error:', err);
+      await ctx.reply('Sorry, I had trouble processing your voice message.');
     } finally {
       stop();
     }
