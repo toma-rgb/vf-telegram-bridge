@@ -1664,7 +1664,7 @@ bot.on(
       formData.append('file', buffer, { filename: `voice_${userId}.ogg`, contentType: 'audio/ogg' });
       formData.append('model', 'whisper-1');
 
-      const sttRes = await axios.post('https://api.openai.com/v1/audio/transcriptions', formData, {
+      const sttRes = await api.post('https://api.openai.com/v1/audio/transcriptions', formData, {
         headers: {
           'Authorization': `Bearer ${OPENAI_API_KEY}`,
           ...formData.getHeaders()
@@ -1686,8 +1686,9 @@ bot.on(
       await sendVFToTelegram(ctx, traces);
       touchSession(userId);
     } catch (err) {
-      console.error('❌ STT error:', err);
-      await ctx.reply('Sorry, I had trouble processing your voice message.');
+      const errDetail = err?.response?.data?.error?.message || err?.message || String(err);
+      console.error('❌ STT error:', errDetail, err?.response?.data || '');
+      await ctx.reply(`Sorry, I had trouble processing your voice message: ${errDetail}`);
     } finally {
       stop();
     }
