@@ -54,6 +54,7 @@ if (!TELEGRAM_BOT_TOKEN || !VF_API_KEY || !VF_PROJECT_ID) {
 // Tripled handler timeout (helps on slow VF turns)
 const bot = new Telegraf(TELEGRAM_BOT_TOKEN, { handlerTimeout: 45_000 });
 const openai = OPENAI_API_KEY ? new OpenAI({ apiKey: OPENAI_API_KEY }) : null;
+console.log(`[stt] ${openai ? '✅ OpenAI STT initialized' : '⚠️ OpenAI STT NOT initialized (check OPENAI_API_KEY env)'}`);
 console.log(`[system] Bot starting (PID: ${process.pid}) at ${new Date().toISOString()}`);
 console.log(
   (VF_USE_VERSION_HEADER
@@ -1674,8 +1675,8 @@ bot.on(
         return;
       }
 
-      // Optional: Inform the user what we heard (can be annoying, but helpful for debugging/transparency)
-      // await ctx.reply(`<i>" ${text} "</i>`, { parse_mode: 'HTML' });
+      // Inform the user what we heard (as requested: "sent as a text")
+      await ctx.reply(`<i>" ${text} "</i>`, { parse_mode: 'HTML' });
 
       const traces = await interactVoiceflow(ctx, userId, text);
       await sendVFToTelegram(ctx, traces);
