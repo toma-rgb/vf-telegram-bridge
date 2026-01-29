@@ -12,6 +12,11 @@ import { Telegraf } from 'telegraf';
 import { randomUUID } from 'crypto';
 import OpenAI from 'openai';
 
+// Fix for Node < 20: OpenAI SDK requires File/Blob globals
+import { Blob, File } from 'node:buffer';
+if (!globalThis.Blob) globalThis.Blob = Blob;
+if (!globalThis.File) globalThis.File = File;
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
