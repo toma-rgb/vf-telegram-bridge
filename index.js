@@ -11,17 +11,7 @@ import { fileURLToPath } from 'url';
 import { Telegraf } from 'telegraf';
 import { randomUUID } from 'crypto';
 import OpenAI from 'openai';
-
-// Fix for Node < 20: OpenAI SDK requires File/Blob globals
-import { Blob as NodeBlob, File as NodeFile } from 'node:buffer';
-if (typeof globalThis.Blob === 'undefined') {
-  console.log('[system] Polyfilling globalThis.Blob');
-  globalThis.Blob = NodeBlob;
-}
-if (typeof globalThis.File === 'undefined') {
-  console.log('[system] Polyfilling globalThis.File');
-  globalThis.File = NodeFile;
-}
+import FormData from 'form-data';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1668,13 +1658,20 @@ bot.on(
       const buffer = Buffer.from(response.data);
       console.log(`[stt] downloaded ${buffer.length} bytes`);
 
-      console.log('[stt] sending to OpenAI Whisper...');
-      const transcription = await openai.audio.transcriptions.create({
-        file: await OpenAI.toFile(buffer, `voice_${userId}.ogg`),
-        model: 'whisper-1',
+      console.log('[stt] sending to OpenAI Whisper API via axios...');
+
+      const formData = new FormData();
+      formData.append('file', buffer, { filename: `voice_${userId}.ogg`, contentType: 'audio/ogg' });
+      formData.append('model', 'whisper-1');
+
+      const sttRes = await axios.post('https://api.openai.com/v1/audio/transcriptions', formData, {
+        headers: {
+          'Authorization': `Bearer ${OPENAI_API_KEY}`,
+          ...formData.getHeaders()
+        }
       });
 
-      const text = transcription.text;
+      const text = sttRes.data.text;
       console.log(`[stt] success: "${text}"`);
 
       if (!text || !text.trim()) {
