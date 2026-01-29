@@ -13,9 +13,15 @@ import { randomUUID } from 'crypto';
 import OpenAI from 'openai';
 
 // Fix for Node < 20: OpenAI SDK requires File/Blob globals
-import { Blob, File } from 'node:buffer';
-if (!globalThis.Blob) globalThis.Blob = Blob;
-if (!globalThis.File) globalThis.File = File;
+import { Blob as NodeBlob, File as NodeFile } from 'node:buffer';
+if (typeof globalThis.Blob === 'undefined') {
+  console.log('[system] Polyfilling globalThis.Blob');
+  globalThis.Blob = NodeBlob;
+}
+if (typeof globalThis.File === 'undefined') {
+  console.log('[system] Polyfilling globalThis.File');
+  globalThis.File = NodeFile;
+}
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1653,27 +1659,23 @@ bot.on(
     }
 
     try {
-      if (DEBUG_STT) console.log('[stt] downloading voice file:', voice.file_id);
+      console.log(`[stt] processing voice from ${userId}, file_id: ${voice.file_id}`);
 
       const fileLink = await ctx.telegram.getFileLink(voice.file_id);
-      const response = await api.get(fileLink.toString(), { responseType: 'arraybuffer' });
+      const url = fileLink.toString();
+
+      const response = await api.get(url, { responseType: 'arraybuffer' });
       const buffer = Buffer.from(response.data);
+      console.log(`[stt] downloaded ${buffer.length} bytes`);
 
-      // Save to temp file because OpenAI Whisper SDK requires a real file or a specific stream format
-      const tempPath = path.join(__dirname, `voice_${userId}_${Date.now()}.ogg`);
-      fs.writeFileSync(tempPath, buffer);
-
-      if (DEBUG_STT) console.log('[stt] transcribing...');
-
-      // Fix for Node < 20: Use a File-like object or specific form data handle
-      // Whisper expects a file-like object with a name
+      console.log('[stt] sending to OpenAI Whisper...');
       const transcription = await openai.audio.transcriptions.create({
         file: await OpenAI.toFile(buffer, `voice_${userId}.ogg`),
         model: 'whisper-1',
       });
 
       const text = transcription.text;
-      if (DEBUG_STT) console.log('[stt] transcription:', text);
+      console.log(`[stt] success: "${text}"`);
 
       if (!text || !text.trim()) {
         await ctx.reply("Sorry, I couldn't hear what you said. Could you try again?");
