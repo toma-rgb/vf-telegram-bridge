@@ -1659,13 +1659,13 @@ bot.on(
       fs.writeFileSync(tempPath, buffer);
 
       if (DEBUG_STT) console.log('[stt] transcribing...');
+
+      // Fix for Node < 20: Use a File-like object or specific form data handle
+      // Whisper expects a file-like object with a name
       const transcription = await openai.audio.transcriptions.create({
-        file: fs.createReadStream(tempPath),
+        file: await OpenAI.toFile(buffer, `voice_${userId}.ogg`),
         model: 'whisper-1',
       });
-
-      // Cleanup
-      try { fs.unlinkSync(tempPath); } catch { }
 
       const text = transcription.text;
       if (DEBUG_STT) console.log('[stt] transcription:', text);
