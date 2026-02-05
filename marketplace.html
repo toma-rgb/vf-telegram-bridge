@@ -106,11 +106,80 @@
             margin: 0 auto;
         }
 
+        .search-container {
+            padding: 10px 20px;
+            margin-bottom: 10px;
+        }
+
+        .search-inner {
+            background: var(--glass-bg);
+            border: 1px solid var(--glass-border);
+            border-radius: 50px;
+            padding: 12px 20px;
+            display: flex;
+            align-items: center;
+            transition: all 0.3s ease;
+        }
+
+        .search-inner:focus-within {
+            border-color: var(--accent-gold);
+            background: rgba(255, 255, 255, 0.08);
+            box-shadow: 0 0 15px rgba(197, 160, 89, 0.1);
+        }
+
+        .search-inner input {
+            background: none;
+            border: none;
+            color: var(--text-light);
+            font-family: 'Outfit', sans-serif;
+            font-size: 1rem;
+            flex-grow: 1;
+            outline: none;
+            margin-left: 10px;
+        }
+
+        .search-inner input::placeholder {
+            color: var(--text-muted);
+        }
+
+        .filter-tabs {
+            display: flex;
+            padding: 10px 20px;
+            gap: 15px;
+            overflow-x: auto;
+            scrollbar-width: none;
+            -ms-overflow-style: none;
+        }
+
+        .filter-tabs::-webkit-scrollbar {
+            display: none;
+        }
+
+        .tab {
+            white-space: nowrap;
+            padding: 8px 18px;
+            border-radius: 20px;
+            font-size: 0.9rem;
+            color: var(--text-muted);
+            background: transparent;
+            border: 1px solid var(--glass-border);
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .tab.active {
+            color: var(--primary-navy);
+            background: var(--accent-gold);
+            border-color: var(--accent-gold);
+            font-weight: 600;
+        }
+
         .product-grid {
             display: grid;
             grid-template-columns: 1fr;
             gap: 25px;
             padding: 20px;
+            min-height: 400px;
         }
 
         .product-card {
@@ -118,7 +187,20 @@
             border: 1px solid var(--glass-border);
             border-radius: 12px;
             overflow: hidden;
-            transition: transform 0.3s ease;
+            transition: transform 0.3s ease, opacity 0.4s ease;
+            animation: fadeInScale 0.5s ease-out forwards;
+        }
+
+        @keyframes fadeInScale {
+            from {
+                opacity: 0;
+                transform: translateY(20px) scale(0.95);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0) scale(1);
+            }
         }
 
         .product-card:active {
@@ -435,6 +517,24 @@
         <p>Curated selections for the distinguished traveler.</p>
     </div>
 
+    <div class="search-container">
+        <div class="search-inner">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round" stroke-linejoin="round" style="color: var(--text-muted);">
+                <circle cx="11" cy="11" r="8"></circle>
+                <path d="M21 21l-4.35-4.35"></path>
+            </svg>
+            <input type="text" id="search-input" placeholder="Search products, brands..." oninput="handleSearch()">
+        </div>
+    </div>
+
+    <div class="filter-tabs">
+        <button class="tab active" onclick="filterCategory('all')">All Collections</button>
+        <button class="tab" onclick="filterCategory('Watches')">Watches</button>
+        <button class="tab" onclick="filterCategory('Jewelry')">Jewelry</button>
+        <button class="tab" onclick="filterCategory('Perfumes')">Perfumes</button>
+    </div>
+
     <div class="product-grid" id="product-grid">
         <!-- Products injected here -->
     </div>
@@ -489,6 +589,7 @@
                 brand: "Aurelius",
                 price: 12500,
                 tag: "Limited Edition",
+                category: "Watches",
                 img: "assets/watch.png",
                 description: "The Midnight Horizon is a masterpiece of maritime engineering. Crafted from grade 5 titanium, its deep navy dial reflects the vastness of the Atlantic at dusk. Designed for the modern explorer, it combines Swiss precision with rugged elegance.",
                 specs: { material: "Titanium", movement: "Automatic", water_res: "200m", diameter: "42mm" }
@@ -499,6 +600,7 @@
                 brand: "L'Essence",
                 price: 295,
                 tag: "Signature Scent",
+                category: "Perfumes",
                 img: "assets/perfume.png",
                 description: "Capturing the essence of a Mediterranean sunset, Golden Voyage opens with crisp sea salt and bergamot, settling into a warm base of amber and driftwood. A scent that lingers like a perfect memory of travel.",
                 specs: { size: "100ml", notes: "Citrus, Salt, Woody", type: "Extrait de Parfum", origin: "Grasse, France" }
@@ -509,18 +611,67 @@
                 brand: "Riviera",
                 price: 8900,
                 tag: "High Jewelry",
+                category: "Jewelry",
                 img: "assets/jewelry.png",
                 description: "A tribute to the deep blue, this necklace features a stunning 5-carat sapphire surrounded by a constellation of brilliant-cut diamonds. Set in 18k white gold, it is the ultimate expression of nautical luxury.",
                 specs: { metal: "18k White Gold", stone: "Blue Sapphire", accents: "Diamonds (2.4ct)", length: "45cm" }
+            },
+            {
+                id: 4,
+                name: "Celestial Chronograph",
+                brand: "Zenith",
+                price: 15800,
+                tag: "Collector's Item",
+                category: "Watches",
+                img: "assets/watch_2.png",
+                description: "A watch that tracks the stars. The Celestial Chronograph features a hand-painted sky-map dial that rotates with the lunar cycle. Housed in a rose gold case, it is as much a cosmic map as it is a timepiece.",
+                specs: { material: "Rose Gold", complications: "Moonphase", water_res: "50m", diameter: "40mm" }
+            },
+            {
+                id: 5,
+                name: "Sea Breeze Elixir",
+                brand: "Aqua Regia",
+                price: 180,
+                tag: "Cruise Exclusive",
+                category: "Perfumes",
+                img: "assets/perfume_2.png",
+                description: "Fresh, airy, and invigorating. This elixir blends cool ozone notes with wild jasmine and white musk. Designed exclusively for our voyage, it is the breath of the ocean captured in a bottle.",
+                specs: { size: "50ml", notes: "Ozone, Jasmine, Musk", type: "Parfum", origin: "Riviera" }
+            },
+            {
+                id: 6,
+                name: "Pearl of the Atlantic",
+                brand: "Lumina",
+                price: 4200,
+                tag: "Modern Classic",
+                category: "Jewelry",
+                img: "assets/jewelry_2.png",
+                description: "Sophistication in its purest form. This bracelet features hand-selected South Sea pearls of exceptional luster, joined by a sculptural silver clasp inspired by nautical ropes.",
+                specs: { material: "South Sea Pearls", metal: "Sterling Silver", length: "19cm", luster: "Premium" }
             }
         ];
 
         let cart = [];
+        let activeCategory = 'all';
+        let searchQuery = '';
 
         function renderProducts() {
             const grid = document.getElementById('product-grid');
-            grid.innerHTML = products.map(p => `
-                <div class="product-card" onclick="showProductDetail(${p.id})">
+
+            const filtered = products.filter(p => {
+                const matchesCategory = activeCategory === 'all' || p.category === activeCategory;
+                const matchesSearch = p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                    p.brand.toLowerCase().includes(searchQuery.toLowerCase());
+                return matchesCategory && matchesSearch;
+            });
+
+            if (filtered.length === 0) {
+                grid.innerHTML = '<div style="text-align: center; grid-column: 1/-1; padding: 40px; color: var(--text-muted);">No products match your search.</div>';
+                return;
+            }
+
+            grid.innerHTML = filtered.map((p, index) => `
+                <div class="product-card" onclick="showProductDetail(${p.id})" style="animation-delay: ${index * 0.1}s">
                     <img src="${p.img}" alt="${p.name}" class="product-image">
                     <div class="product-info">
                         <span class="product-tag">${p.tag}</span>
@@ -532,10 +683,34 @@
             `).join('');
         }
 
+        function filterCategory(category) {
+            activeCategory = category;
+
+            // Update UI
+            document.querySelectorAll('.tab').forEach(tab => {
+                tab.classList.toggle('active', tab.innerText.includes(category) || (category === 'all' && tab.innerText.includes('All')));
+            });
+
+            if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.HapticFeedback) {
+                window.Telegram.WebApp.HapticFeedback.impactOccurred('light');
+            }
+
+            renderProducts();
+        }
+
+        function handleSearch() {
+            searchQuery = document.getElementById('search-input').value;
+            renderProducts();
+        }
+
         function showProductDetail(id) {
             const product = products.find(p => p.id === id);
             const detailView = document.getElementById('product-detail');
             const content = document.getElementById('detail-view-content');
+
+            if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.HapticFeedback) {
+                window.Telegram.WebApp.HapticFeedback.impactOccurred('medium');
+            }
 
             content.innerHTML = `
                 <img src="${product.img}" alt="${product.name}" class="detail-hero-img">
