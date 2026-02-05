@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Duty Free Marketplace | Golden Horizon</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700&family=Outfit:wght@300;400;600&display=swap"
+        rel="stylesheet">
+    <style>
+        :root {
+            --primary-navy: #001220;
+            --accent-gold: #c5a059;
+            --text-light: #f4f4f4;
+            --text-muted: #a0a0a0;
+            --glass-bg: rgba(255, 255, 255, 0.05);
+            --glass-border: rgba(255, 255, 255, 0.1);
+        }
+
+        * {
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: 'Outfit', sans-serif;
+            background-color: var(--primary-navy);
+            color: var(--text-light);
+            overflow-x: hidden;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        h1,
+        h2,
+        h3 {
+            font-family: 'Playfair Display', serif;
+            letter-spacing: 0.05em;
+        }
+
+        header {
+            padding: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            background: rgba(0, 18, 32, 0.8);
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid var(--glass-border);
+        }
+
+        .logo {
+            font-size: 1.2rem;
+            font-weight: 700;
+            color: var(--accent-gold);
+            text-transform: uppercase;
+        }
+
+        .cart-icon {
+            position: relative;
+            cursor: pointer;
+            padding: 10px;
+        }
+
+        .cart-count {
+            position: absolute;
+            top: 0;
+            right: 0;
+            background: var(--accent-gold);
+            color: var(--primary-navy);
+            font-size: 10px;
+            font-weight: 700;
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            visibility: hidden;
+        }
+
+        .cart-count.visible {
+            visibility: visible;
+        }
+
+        .hero {
+            padding: 40px 20px;
+            text-align: center;
+            background: linear-gradient(to bottom, transparent, rgba(197, 160, 89, 0.05));
+        }
+
+        .hero h1 {
+            font-size: 2.2rem;
+            margin-bottom: 10px;
+        }
+
+        .hero p {
+            color: var(--text-muted);
+            font-weight: 300;
+            max-width: 80%;
+            margin: 0 auto;
+        }
+
+        .product-grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 25px;
+            padding: 20px;
+        }
+
+        .product-card {
+            background: var(--glass-bg);
+            border: 1px solid var(--glass-border);
+            border-radius: 12px;
+            overflow: hidden;
+            transition: transform 0.3s ease;
+        }
+
+        .product-card:active {
+            transform: scale(0.98);
+        }
+
+        .product-image {
+            width: 100%;
+            height: 250px;
+            object-fit: cover;
+            border-bottom: 1px solid var(--glass-border);
+        }
+
+        .product-info {
+            padding: 20px;
+        }
+
+        .product-tag {
+            font-size: 10px;
+            text-transform: uppercase;
+            color: var(--accent-gold);
+            letter-spacing: 0.1em;
+            margin-bottom: 5px;
+            display: block;
+        }
+
+        .product-title {
+            font-size: 1.4rem;
+            margin: 5px 0;
+        }
+
+        .product-price {
+            font-size: 1.1rem;
+            color: var(--text-muted);
+            margin-bottom: 20px;
+            font-weight: 300;
+        }
+
+        .add-btn {
+            width: 100%;
+            background: transparent;
+            border: 1px solid var(--accent-gold);
+            color: var(--accent-gold);
+            padding: 12px;
+            border-radius: 8px;
+            font-family: 'Outfit', sans-serif;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .add-btn:hover,
+        .add-btn:active {
+            background: var(--accent-gold);
+            color: var(--primary-navy);
+        }
+
+        /* Cart Drawer */
+        #cart-drawer {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            height: 70%;
+            background: var(--primary-navy);
+            border-top: 1px solid var(--glass-border);
+            z-index: 200;
+            transform: translateY(100%);
+            transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            padding: 30px 20px;
+            display: flex;
+            flex-direction: column;
+        }
+
+        #cart-drawer.open {
+            transform: translateY(0);
+        }
+
+        .drawer-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 30px;
+        }
+
+        .close-btn {
+            cursor: pointer;
+            font-size: 1.5rem;
+            color: var(--accent-gold);
+        }
+
+        #cart-items {
+            flex-grow: 1;
+            overflow-y: auto;
+        }
+
+        .cart-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 15px 0;
+            border-bottom: 1px solid var(--glass-border);
+        }
+
+        .cart-item-info h4 {
+            margin: 0;
+            font-family: 'Outfit', sans-serif;
+            font-weight: 400;
+        }
+
+        .cart-item-info span {
+            font-size: 0.9rem;
+            color: var(--text-muted);
+        }
+
+        .remove-item {
+            color: #ff4d4d;
+            font-size: 0.8rem;
+            cursor: pointer;
+        }
+
+        .drawer-footer {
+            margin-top: 20px;
+        }
+
+        .total-row {
+            display: flex;
+            justify-content: space-between;
+            font-size: 1.2rem;
+            margin-bottom: 20px;
+            font-weight: 600;
+        }
+
+        .checkout-btn {
+            width: 100%;
+            background: var(--accent-gold);
+            color: var(--primary-navy);
+            border: none;
+            padding: 18px;
+            border-radius: 12px;
+            font-size: 1.1rem;
+            font-weight: 700;
+            cursor: pointer;
+            box-shadow: 0 10px 20px rgba(197, 160, 89, 0.2);
+        }
+
+        /* Success Screen */
+        #success-screen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: var(--primary-navy);
+            z-index: 1000;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            padding: 40px;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.5s ease;
+        }
+
+        #success-screen.active {
+            opacity: 1;
+            pointer-events: all;
+        }
+
+        .success-icon {
+            font-size: 4rem;
+            color: var(--accent-gold);
+            margin-bottom: 20px;
+            animation: scaleIn 0.5s ease;
+        }
+
+        @keyframes scaleIn {
+            from {
+                transform: scale(0);
+            }
+
+            to {
+                transform: scale(1);
+            }
+        }
+
+        .overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 150;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s ease;
+        }
+
+        .overlay.active {
+            opacity: 1;
+            pointer-events: all;
+        }
+    </style>
+</head>
+
+<body>
+    <header>
+        <div class="logo">Golden Horizon</div>
+        <div class="cart-icon" onclick="toggleCart()">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="9" cy="21" r="1"></circle>
+                <circle cx="20" cy="21" r="1"></circle>
+                <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"></path>
+            </svg>
+            <div id="cart-count" class="cart-count">0</div>
+        </div>
+    </header>
+
+    <div class="hero">
+        <span class="product-tag">Exclusive Voyage Collection</span>
+        <h1>Tax-Free Luxury</h1>
+        <p>Curated selections for the distinguished traveler.</p>
+    </div>
+
+    <div class="product-grid" id="product-grid">
+        <!-- Products injected here -->
+    </div>
+
+    <div class="overlay" id="overlay" onclick="toggleCart()"></div>
+
+    <div id="cart-drawer">
+        <div class="drawer-header">
+            <h3>Your Selection</h3>
+            <span class="close-btn" onclick="toggleCart()">&times;</span>
+        </div>
+        <div id="cart-items">
+            <!-- Items injected here -->
+        </div>
+        <div class="drawer-footer">
+            <div class="total-row">
+                <span>Total</span>
+                <span id="cart-total">$0</span>
+            </div>
+            <button class="checkout-btn" onclick="checkout()">Buy and Deliver to Room</button>
+        </div>
+    </div>
+
+    <div id="success-screen">
+        <div class="success-icon">✨</div>
+        <h2>Transaction Complete</h2>
+        <p id="success-msg" style="line-height: 1.6; margin-top: 20px;"></p>
+        <button class="add-btn" style="margin-top: 40px; max-width: 200px;" onclick="closeWebApp()">Return to
+            Chat</button>
+    </div>
+
+    <script>
+        const products = [
+            { id: 1, name: "Midnight Horizon Watch", brand: "Aurelius", price: 12500, tag: "Limited Edition", img: "assets/watch.png" },
+            { id: 2, name: "Golden Voyage Parfume", brand: "L'Essence", price: 295, tag: "Signature Scent", img: "assets/perfume.png" },
+            { id: 3, name: "Oceanic Sapphire Necklace", brand: "Riviera", price: 8900, tag: "High Jewelry", img: "assets/jewelry.png" }
+        ];
+
+        let cart = [];
+
+        function renderProducts() {
+            const grid = document.getElementById('product-grid');
+            grid.innerHTML = products.map(p => `
+                <div class="product-card">
+                    <img src="${p.img}" alt="${p.name}" class="product-image">
+                    <div class="product-info">
+                        <span class="product-tag">${p.tag}</span>
+                        <h3 class="product-title">${p.name}</h3>
+                        <div class="product-price">$${p.price.toLocaleString()}</div>
+                        <button class="add-btn" onclick="addToCart(${p.id})">Add to Cart</button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function addToCart(id) {
+            const product = products.find(p => p.id === id);
+            cart.push(product);
+            updateCart();
+
+            // Haptic feedback if available
+            if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.HapticFeedback) {
+                window.Telegram.WebApp.HapticFeedback.impactOccurred('medium');
+            }
+        }
+
+        function removeFromCart(index) {
+            cart.splice(index, 1);
+            updateCart();
+        }
+
+        function updateCart() {
+            const count = document.getElementById('cart-count');
+            const items = document.getElementById('cart-items');
+            const total = document.getElementById('cart-total');
+
+            count.innerText = cart.length;
+            count.classList.toggle('visible', cart.length > 0);
+
+            if (cart.length === 0) {
+                items.innerHTML = '<div style="text-align: center; color: var(--text-muted); margin-top: 40px;">Your cart is currently empty.</div>';
+            } else {
+                items.innerHTML = cart.map((item, index) => `
+                    <div class="cart-item">
+                        <div class="cart-item-info">
+                            <h4>${item.name}</h4>
+                            <span>$${item.price.toLocaleString()}</span>
+                        </div>
+                        <span class="remove-item" onclick="removeFromCart(${index})">Remove</span>
+                    </div>
+                `).join('');
+            }
+
+            const sum = cart.reduce((acc, curr) => acc + curr.price, 0);
+            total.innerText = `$${sum.toLocaleString()}`;
+        }
+
+        function toggleCart() {
+            document.getElementById('cart-drawer').classList.toggle('open');
+            document.getElementById('overlay').classList.toggle('active');
+        }
+
+        function checkout() {
+            if (cart.length === 0) {
+                alert("Please add at least one item to your cart.");
+                return;
+            }
+
+            const successScreen = document.getElementById('success-screen');
+            const successMsg = document.getElementById('success-msg');
+
+            successMsg.innerText = "Thanks for your order! The products will be delivered to your room, alongside the receipt to sign to assign the cost to the room of the user.";
+
+            successScreen.classList.add('active');
+        }
+
+        function closeWebApp() {
+            if (window.Telegram && window.Telegram.WebApp) {
+                window.Telegram.WebApp.close();
+            }
+        }
+
+        window.onload = () => {
+            renderProducts();
+            updateCart();
+
+            if (window.Telegram && window.Telegram.WebApp) {
+                window.Telegram.WebApp.ready();
+                window.Telegram.WebApp.expand();
+            }
+        };
+    </script>
+</body>
+
+</html>
