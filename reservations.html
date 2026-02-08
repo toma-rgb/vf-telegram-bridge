@@ -3,22 +3,25 @@
 
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport"
+        content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>The Trailblazer - Fine Dining Reservations</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <link
-        href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600&family=Playfair+Display:wght@400;700&display=swap"
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Playfair+Display:ital,wght@0,400;0,700;1,400&display=swap"
         rel="stylesheet">
     <style>
         :root {
-            --primary-cream: #FDFBF7;
-            --deep-walnut: #2D241E;
+            --bg-deep: #0F0D0B;
+            --bg-card: #1A1612;
             --accent-gold: #C5A059;
-            --text-dark: #1A1A1A;
-            --text-muted: #6B5E55;
-            --glass-bg: rgba(255, 255, 255, 0.9);
-            --glass-border: rgba(197, 160, 89, 0.3);
-            --transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            --accent-gold-bright: #E5C284;
+            --text-primary: #FFFFFF;
+            --text-secondary: #B0A8A0;
+            --glass: rgba(255, 255, 255, 0.05);
+            --glass-border: rgba(255, 255, 255, 0.1);
+            --safe-top: env(safe-area-inset-top);
+            --safe-bottom: env(safe-area-inset-bottom);
         }
 
         * {
@@ -29,368 +32,298 @@
         }
 
         body {
-            font-family: 'Outfit', sans-serif;
-            background-color: var(--primary-cream);
-            color: var(--text-dark);
-            line-height: 1.6;
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-deep);
+            color: var(--text-primary);
+            -webkit-font-smoothing: antialiased;
             overflow-x: hidden;
+            min-height: 100vh;
         }
 
         h1,
         h2,
-        h3 {
+        h3,
+        .quote {
             font-family: 'Playfair Display', serif;
         }
 
-        /* Layout */
-        .container {
-            max-width: 600px;
-            margin: 0 auto;
-            padding-bottom: 100px;
-        }
-
-        header {
-            padding: 40px 20px 20px;
-            text-align: center;
-            background: linear-gradient(to bottom, #F5EDDF, var(--primary-cream));
-        }
-
-        .ship-logo {
-            font-size: 0.8rem;
-            letter-spacing: 0.3em;
-            text-transform: uppercase;
-            color: var(--accent-gold);
-            margin-bottom: 10px;
-            font-weight: 600;
-        }
-
-        h1 {
-            font-size: 2.2rem;
-            color: var(--deep-walnut);
-            margin-bottom: 5px;
-        }
-
-        .subtitle {
-            font-size: 0.9rem;
-            color: var(--text-muted);
-            font-weight: 300;
-        }
-
-        /* Restaurant Grid */
-        .restaurant-grid {
-            padding: 20px;
-            display: grid;
-            gap: 30px;
-        }
-
-        .restaurant-card {
-            background: white;
-            border-radius: 12px;
-            overflow: hidden;
-            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.05);
-            transition: var(--transition);
+        /* --- Components --- */
+        .premium-card {
+            background: var(--bg-card);
             border: 1px solid var(--glass-border);
-            animation: fadeIn 0.8s ease forwards;
-        }
-
-        @keyframes fadeIn {
-            from {
-                opacity: 0;
-                transform: translateY(20px);
-            }
-
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
-        }
-
-        .restaurant-img {
-            width: 100%;
-            height: 250px;
-            object-fit: cover;
-            transition: var(--transition);
-        }
-
-        .restaurant-card:hover .restaurant-img {
-            transform: scale(1.05);
-        }
-
-        .restaurant-info {
-            padding: 20px;
-            position: relative;
-        }
-
-        .deck-badge {
-            position: absolute;
-            top: -15px;
-            right: 20px;
-            background: var(--deep-walnut);
-            color: var(--accent-gold);
-            padding: 5px 15px;
             border-radius: 20px;
-            font-size: 0.75rem;
-            font-weight: 600;
-            border: 1px solid var(--accent-gold);
-        }
-
-        .restaurant-title {
-            font-size: 1.5rem;
-            margin-bottom: 8px;
-            color: var(--deep-walnut);
-        }
-
-        .restaurant-desc {
-            font-size: 0.9rem;
-            color: var(--text-muted);
-            margin-bottom: 20px;
-            display: -webkit-box;
-            -webkit-line-clamp: 2;
-            -webkit-box-orient: vertical;
             overflow: hidden;
         }
 
-        .card-actions {
+        .premium-btn {
+            background: var(--accent-gold);
+            color: var(--bg-deep);
+            border: none;
+            padding: 16px 24px;
+            border-radius: 12px;
+            font-weight: 600;
+            font-family: 'Inter', sans-serif;
+            font-size: 1rem;
+            cursor: pointer;
+            width: 100%;
+            transition: all 0.2s ease;
             display: flex;
+            align-items: center;
+            justify-content: center;
             gap: 10px;
         }
 
-        .btn {
-            flex: 1;
-            padding: 12px;
-            border-radius: 8px;
-            font-family: 'Outfit', sans-serif;
-            font-size: 0.9rem;
-            cursor: pointer;
-            transition: var(--transition);
-            text-align: center;
-            border: 1px solid var(--accent-gold);
+        .premium-btn:active {
+            transform: scale(0.98);
+            background: var(--accent-gold-bright);
         }
 
         .btn-outline {
             background: transparent;
+            border: 1px solid var(--accent-gold);
             color: var(--accent-gold);
         }
 
-        .btn-primary {
-            background: var(--accent-gold);
-            color: white;
-            font-weight: 600;
+        /* --- Header --- */
+        header {
+            padding: calc(40px + var(--safe-top)) 20px 30px;
+            text-align: center;
+            background: linear-gradient(to bottom, rgba(197, 160, 89, 0.05), transparent);
         }
 
-        /* Detail Overlay */
-        #detail-overlay {
+        .ship-name {
+            font-size: 0.75rem;
+            letter-spacing: 0.4em;
+            text-transform: uppercase;
+            color: var(--accent-gold);
+            margin-bottom: 8px;
+            font-weight: 500;
+        }
+
+        h1 {
+            font-size: 2.5rem;
+            margin-bottom: 5px;
+            letter-spacing: -0.02em;
+        }
+
+        .tagline {
+            color: var(--text-secondary);
+            font-style: italic;
+            font-family: 'Playfair Display', serif;
+            font-size: 1.1rem;
+        }
+
+        /* --- Restaurant List --- */
+        .rest-list {
+            padding: 0 20px 100px;
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+        }
+
+        .rest-card {
+            position: relative;
+        }
+
+        .rest-img-wrapper {
+            height: 280px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .rest-img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transition: transform 0.6s ease;
+        }
+
+        .rest-overlay {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            padding: 40px 20px 20px;
+            background: linear-gradient(to top, var(--bg-card), transparent);
+        }
+
+        .deck-info {
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: var(--accent-gold);
+            margin-bottom: 4px;
+        }
+
+        .rest-name {
+            font-size: 1.8rem;
+            margin-bottom: 12px;
+        }
+
+        .rest-footer {
+            padding: 0 20px 20px;
+            display: flex;
+            gap: 12px;
+        }
+
+        /* --- Detail Modal --- */
+        #detail-view {
             position: fixed;
             top: 0;
             left: 0;
             width: 100%;
             height: 100%;
-            background: var(--primary-cream);
+            background: var(--bg-deep);
             z-index: 1000;
             transform: translateY(100%);
             transition: transform 0.5s cubic-bezier(0.4, 0, 0.2, 1);
             overflow-y: auto;
+            visibility: hidden;
         }
 
-        #detail-overlay.active {
+        #detail-view.active {
             transform: translateY(0);
+            visibility: visible;
         }
 
-        .detail-header {
+        .modal-nav {
             position: sticky;
             top: 0;
-            padding: 20px;
-            background: rgba(253, 251, 247, 0.9);
-            backdrop-filter: blur(10px);
-            z-index: 10;
+            padding: calc(15px + var(--safe-top)) 20px 15px;
+            background: rgba(15, 13, 11, 0.8);
+            backdrop-filter: blur(20px);
+            z-index: 100;
             display: flex;
+            justify-content: space-between;
             align-items: center;
         }
 
-        .back-btn {
-            background: none;
-            border: none;
-            color: var(--accent-gold);
-            font-size: 1.2rem;
-            cursor: pointer;
+        .close-btn {
+            background: var(--glass);
+            border: 1px solid var(--glass-border);
+            color: white;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
             display: flex;
             align-items: center;
+            justify-content: center;
         }
 
-        /* Tabs */
-        .tabs {
+        /* --- Tabs --- */
+        .modal-tabs {
             display: flex;
-            padding: 0 20px;
+            padding: 10px 20px;
+            gap: 30px;
             border-bottom: 1px solid var(--glass-border);
-            position: sticky;
-            top: 65px;
-            background: var(--primary-cream);
-            z-index: 9;
         }
 
-        .tab {
-            flex: 1;
-            padding: 15px 0;
-            text-align: center;
-            font-size: 0.85rem;
+        .modal-tab {
+            padding: 10px 0;
+            font-size: 0.8rem;
             text-transform: uppercase;
             letter-spacing: 0.1em;
-            color: var(--text-muted);
-            cursor: pointer;
+            color: var(--text-secondary);
             position: relative;
         }
 
-        .tab.active {
+        .modal-tab.active {
             color: var(--accent-gold);
             font-weight: 600;
         }
 
-        .tab.active::after {
+        .modal-tab.active::after {
             content: '';
             position: absolute;
-            bottom: 0;
-            left: 20%;
-            width: 60%;
+            bottom: -1px;
+            left: 0;
+            width: 100%;
             height: 2px;
             background: var(--accent-gold);
         }
 
-        .tab-content {
-            padding: 30px 20px;
-            display: none;
-        }
-
-        .tab-content.active {
-            display: block;
-            animation: fadeIn 0.5s ease;
-        }
-
-        /* Menu Styles */
-        .menu-section {
-            margin-bottom: 40px;
-        }
-
-        .menu-section h4 {
-            font-size: 0.8rem;
+        /* --- Custom Inputs --- */
+        .modern-label {
+            font-size: 0.7rem;
             text-transform: uppercase;
+            letter-spacing: 0.1em;
             color: var(--accent-gold);
-            letter-spacing: 0.2em;
-            text-align: center;
-            margin-bottom: 25px;
-            position: relative;
-        }
-
-        .menu-section h4::before,
-        .menu-section h4::after {
-            content: '';
-            position: absolute;
-            top: 50%;
-            width: 30%;
-            height: 1px;
-            background: var(--glass-border);
-        }
-
-        .menu-section h4::before {
-            left: 0;
-        }
-
-        .menu-section h4::after {
-            right: 0;
-        }
-
-        .menu-item {
-            margin-bottom: 25px;
-            text-align: center;
-        }
-
-        .item-name {
-            font-family: 'Playfair Display', serif;
-            font-size: 1.2rem;
-            color: var(--deep-walnut);
-            margin-bottom: 5px;
-        }
-
-        .item-desc {
-            font-size: 0.85rem;
-            color: var(--text-muted);
-            font-style: italic;
-        }
-
-        /* Reservation Flow */
-        .reserve-step {
-            display: none;
-        }
-
-        .reserve-step.active {
+            margin-bottom: 10px;
             display: block;
-            animation: fadeIn 0.4s ease;
         }
 
-        .input-group {
-            margin-bottom: 25px;
-        }
-
-        label {
-            display: block;
-            font-size: 0.85rem;
-            color: var(--text-muted);
-            margin-bottom: 8px;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-        }
-
-        input,
-        select {
-            width: 100%;
-            padding: 15px;
-            border-radius: 8px;
-            border: 1px solid var(--glass-border);
-            background: white;
-            font-family: 'Outfit', sans-serif;
-            font-size: 1rem;
-            outline: none;
-        }
-
-        input:focus {
-            border-color: var(--accent-gold);
-        }
-
-        .layout-map {
-            width: 100%;
-            border-radius: 12px;
-            margin-bottom: 20px;
-            border: 1px solid var(--glass-border);
-        }
-
-        .table-grid {
+        .custom-select-grid {
             display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 15px;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
             margin-bottom: 30px;
         }
 
-        .table-option {
-            padding: 15px;
+        .custom-option {
+            background: var(--glass);
             border: 1px solid var(--glass-border);
-            border-radius: 10px;
+            padding: 15px;
+            border-radius: 12px;
             text-align: center;
-            cursor: pointer;
-            transition: var(--transition);
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+            transition: all 0.3s ease;
         }
 
-        .table-option.selected {
+        .custom-option.selected {
             border-color: var(--accent-gold);
-            background: rgba(197, 160, 89, 0.1);
+            background: rgba(197, 160, 89, 0.15);
+            color: var(--accent-gold-bright);
+            box-shadow: 0 0 20px rgba(197, 160, 89, 0.1);
         }
 
-        /* Success Screen */
-        #success-screen {
+        .modern-input {
+            background: var(--glass);
+            border: 1px solid var(--glass-border);
+            padding: 18px;
+            border-radius: 12px;
+            width: 100%;
+            color: white;
+            font-family: inherit;
+            font-size: 1rem;
+            margin-bottom: 20px;
+            outline: none;
+        }
+
+        .modern-input:focus {
+            border-color: var(--accent-gold);
+        }
+
+        /* --- Step Progress --- */
+        .step-container {
+            display: none;
+            animation: slideIn 0.4s ease forwards;
+        }
+
+        .step-container.active {
+            display: block;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateX(20px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+
+        /* --- Success View --- */
+        #success-view {
             position: fixed;
             top: 0;
             left: 0;
             width: 100%;
             height: 100%;
-            background: var(--primary-cream);
+            background: var(--bg-deep);
             z-index: 2000;
             display: none;
             flex-direction: column;
@@ -400,131 +333,167 @@
             text-align: center;
         }
 
-        .success-icon {
-            font-size: 5rem;
-            margin-bottom: 20px;
+        .confetti {
+            font-size: 4rem;
+            margin-bottom: 30px;
+        }
+
+        .menu-grid {
+            display: flex;
+            flex-direction: column;
+            gap: 30px;
+            padding: 20px 0;
+        }
+
+        .menu-category-title {
+            font-family: 'Playfair Display', serif;
+            font-size: 1.5rem;
             color: var(--accent-gold);
+            text-align: center;
+            margin-bottom: 20px;
+        }
+
+        .menu-item-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            margin-bottom: 4px;
+        }
+
+        .menu-item-name {
+            font-weight: 500;
+            font-size: 1.1rem;
+        }
+
+        .menu-item-desc {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            font-style: italic;
         }
     </style>
 </head>
 
 <body>
 
-    <div class="container" id="main-view">
-        <header>
-            <div class="ship-logo">The Trailblazer</div>
-            <h1>Fine Dining</h1>
-            <p class="subtitle">Experience culinary excellence at sea.</p>
-        </header>
+    <header>
+        <p class="ship-name">THE TRAILBLAZER</p>
+        <h1>Bon Appétit</h1>
+        <p class="tagline">An evening of refined tastes awaits.</p>
+    </header>
 
-        <div class="restaurant-grid" id="restaurant-grid">
-            <!-- Dynamic Cards -->
-        </div>
+    <div class="rest-list" id="restaurant-list">
+        <!-- Injected Restaurants -->
     </div>
 
-    <!-- Detail Overlay -->
-    <div id="detail-overlay">
-        <div class="detail-header">
-            <button class="back-btn" onclick="hideDetail()">
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-                    stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M19 12H5M12 19l-7-7 7-7" />
+    <!-- Details View -->
+    <div id="detail-view">
+        <div class="modal-nav">
+            <h2 id="modal-title" style="font-size: 1.4rem;"></h2>
+            <button class="close-btn" onclick="closeModal()">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                    <path d="M18 6L6 18M6 6l12 12" />
                 </svg>
-                <span
-                    style="font-size: 0.9rem; margin-left:10px; text-transform:uppercase; letter-spacing:0.1em;">Back</span>
             </button>
         </div>
 
-        <div class="tabs">
-            <div class="tab active" onclick="showTab('overview')">Overview</div>
-            <div class="tab" id="menu-tab-btn" onclick="showTab('menu')">Menu</div>
-            <div class="tab" onclick="showTab('reserve')">Reserve</div>
+        <div class="modal-tabs">
+            <div class="modal-tab active" id="tab-overview" onclick="switchTab(this, 'overview-step')">Overview</div>
+            <div class="modal-tab" id="tab-menu" onclick="switchTab(this, 'menu-step')">Menu</div>
+            <div class="modal-tab" id="tab-reserve" onclick="switchTab(this, 'reserve-step')">Reserve</div>
         </div>
 
-        <div id="overview" class="tab-content active">
-            <!-- Dynamic Overview -->
+        <div id="overview-step" class="step-container active" style="padding: 20px;">
+            <div id="overview-content"></div>
         </div>
 
-        <div id="menu" class="tab-content">
-            <!-- Dynamic Menu -->
+        <div id="menu-step" class="step-container" style="padding: 20px;">
+            <div id="menu-content" class="menu-grid"></div>
         </div>
 
-        <div id="reserve" class="tab-content">
-            <div id="step-1" class="reserve-step active">
-                <h3 style="margin-bottom:20px;">Reservation Details</h3>
-                <div class="input-group">
-                    <label>Headcount</label>
-                    <select id="headcount">
-                        <option value="1">1 Person</option>
-                        <option value="2" selected>2 People</option>
-                        <option value="3">3 People</option>
-                        <option value="4">4 People</option>
-                        <option value="5">5 People</option>
-                        <option value="6">6+ People</option>
-                    </select>
-                </div>
-                <div class="input-group">
-                    <label>Time</label>
-                    <select id="time">
-                        <option value="17:30">17:30</option>
-                        <option value="18:00">18:00</option>
-                        <option value="18:30" selected>18:30</option>
-                        <option value="19:00">19:00</option>
-                        <option value="19:30">19:30</option>
-                        <option value="20:00">20:00</option>
-                        <option value="20:30">20:30</option>
-                    </select>
-                </div>
-                <button class="btn btn-primary" style="width:100%" onclick="nextStep(2)">Select Table Type</button>
-            </div>
+        <div id="reserve-step" class="step-container" style="padding: 20px;">
+            <div id="booking-flow">
+                <!-- Step 1: Headcount & Time -->
+                <div id="booking-s1">
+                    <span class="modern-label">GUESTS AT TABLE</span>
+                    <div class="custom-select-grid" id="headcount-options">
+                        <div class="custom-option" onclick="selectOption(this, 'size', '1')">1</div>
+                        <div class="custom-option selected" onclick="selectOption(this, 'size', '2')">2</div>
+                        <div class="custom-option" onclick="selectOption(this, 'size', '3')">3</div>
+                        <div class="custom-option" onclick="selectOption(this, 'size', '4')">4</div>
+                        <div class="custom-option" onclick="selectOption(this, 'size', '5')">5</div>
+                        <div class="custom-option" onclick="selectOption(this, 'size', '6+')">6+</div>
+                    </div>
 
-            <div id="step-2" class="reserve-step">
-                <h3 style="margin-bottom:20px;">Preferred Seating</h3>
-                <img src="assets/floor_plan.png" class="layout-map" alt="Restaurant Layout">
-                <div class="table-grid" id="table-options">
-                    <div class="table-option" onclick="selectTable(this, 'Window View')">
-                        <div style="font-weight:600">Window View</div>
-                        <div style="font-size:0.7rem; color:var(--text-muted)">Ocean Vista</div>
+                    <span class="modern-label">DINING TIME</span>
+                    <div class="custom-select-grid" style="grid-template-columns: repeat(4, 1fr);" id="time-options">
+                        <div class="custom-option" onclick="selectOption(this, 'time', '17:30')">17:30</div>
+                        <div class="custom-option" onclick="selectOption(this, 'time', '18:00')">18:00</div>
+                        <div class="custom-option selected" onclick="selectOption(this, 'time', '18:30')">18:30</div>
+                        <div class="custom-option" onclick="selectOption(this, 'time', '19:00')">19:00</div>
+                        <div class="custom-option" onclick="selectOption(this, 'time', '19:30')">19:30</div>
+                        <div class="custom-option" onclick="selectOption(this, 'time', '20:00')">20:00</div>
+                        <div class="custom-option" onclick="selectOption(this, 'time', '20:30')">20:30</div>
+                        <div class="custom-option" onclick="selectOption(this, 'time', '21:00')">21:00</div>
                     </div>
-                    <div class="table-option" onclick="selectTable(this, 'Private Alcove')">
-                        <div style="font-weight:600">Private Alcove</div>
-                        <div style="font-size:0.7rem; color:var(--text-muted)">Intimate Setting</div>
-                    </div>
-                    <div class="table-option" onclick="selectTable(this, 'Main Dining')">
-                        <div style="font-weight:600">Main Hall</div>
-                        <div style="font-size:0.7rem; color:var(--text-muted)">The Pulse</div>
-                    </div>
-                    <div class="table-option" onclick="selectTable(this, 'Chef\'s Table')">
-                        <div style="font-weight:600">Chef's Table</div>
-                        <div style="font-size:0.7rem; color:var(--text-muted)">Near the Kitchen</div>
-                    </div>
-                </div>
-                <button class="btn btn-primary" style="width:100%" onclick="nextStep(3)">Continue</button>
-            </div>
 
-            <div id="step-3" class="reserve-step">
-                <h3 style="margin-bottom:20px;">Your Information</h3>
-                <div class="input-group">
-                    <label>Full Name</label>
-                    <input type="text" id="user-name" placeholder="E.g. James Bond">
+                    <button class="premium-btn" onclick="goToBookingStep(2)">Continue to Seating</button>
                 </div>
-                <div class="input-group">
-                    <label>Room Number / Email</label>
-                    <input type="text" id="user-contact" placeholder="E.g. Room 402 or james@mi6.gov">
+
+                <!-- Step 2: Table Type -->
+                <div id="booking-s2" style="display: none;">
+                    <span class="modern-label">PICK YOUR VIEW</span>
+                    <img src="assets/floor_plan.png" alt="Floor Plan"
+                        style="width: 100%; border-radius: 12px; margin-bottom: 20px; border: 1px solid var(--glass-border);">
+
+                    <div class="custom-select-grid" style="grid-template-columns: 1fr 1fr;" id="table-options">
+                        <div class="custom-option" onclick="selectOption(this, 'table', 'Window (Sea View)')">Window
+                            (Sea View)</div>
+                        <div class="custom-option" onclick="selectOption(this, 'table', 'Private Alcove')">Private
+                            Alcove</div>
+                        <div class="custom-option selected" onclick="selectOption(this, 'table', 'Main Dining Hall')">
+                            Main Dining</div>
+                        <div class="custom-option" onclick="selectOption(this, 'table', 'Chef\'s Table')">Chef's Table
+                        </div>
+                    </div>
+
+                    <div style="display: flex; gap: 10px;">
+                        <button class="premium-btn btn-outline" onclick="goToBookingStep(1)"
+                            style="flex: 0.4;">Back</button>
+                        <button class="premium-btn" onclick="goToBookingStep(3)" style="flex: 1;">Personal Info</button>
+                    </div>
                 </div>
-                <button class="btn btn-primary" style="width:100%" onclick="completeReservation()">Confirm
-                    Reservation</button>
+
+                <!-- Step 3: Info & Confirm -->
+                <div id="booking-s3" style="display: none;">
+                    <span class="modern-label">GUEST DETAILS</span>
+                    <input type="text" id="input-name" class="modern-input" placeholder="Guest Name">
+                    <input type="text" id="input-contact" class="modern-input" placeholder="Room Number or Email">
+
+                    <button class="premium-btn" onclick="finishBooking()">
+                        Confirm Reservation
+                    </button>
+                    <p style="text-align: center; font-size: 0.75rem; color: var(--text-secondary); margin-top: 20px;">
+                        Confirmation will be sent via voyage notifications.</p>
+                </div>
             </div>
         </div>
     </div>
 
     <!-- Success Screen -->
-    <div id="success-screen">
-        <div class="success-icon">✨</div>
-        <h2 style="font-size: 2rem; margin-bottom: 10px;">Reservation Confirmed</h2>
-        <p id="reservation-summary" style="color:var(--text-muted); margin-bottom: 40px;"></p>
-        <button class="btn btn-primary" style="max-width: 250px; width: 100%;" onclick="closeApp()">Return to
-            Chat</button>
+    <div id="success-view">
+        <div class="confetti">✨</div>
+        <h2 style="font-size: 2.2rem; margin-bottom: 10px;">Enchanté</h2>
+        <p style="color: var(--text-secondary); margin-bottom: 30px;">Your table is secured at <span id="conf-rest"
+                style="color: var(--accent-gold); font-weight: 600;"></span>.</p>
+
+        <div
+            style="background: var(--glass); padding: 24px; border-radius: 16px; width: 100%; border: 1px solid var(--glass-border); margin-bottom: 40px; text-align: left;">
+            <div style="font-size: 0.8rem; color: var(--accent-gold); text-transform: uppercase; margin-bottom: 10px;">
+                Details</div>
+            <div id="conf-details" style="font-size: 1.1rem; line-height: 1.6;"></div>
+        </div>
+
+        <button class="premium-btn" onclick="closeApp()">Return to Chat</button>
     </div>
 
     <script>
@@ -532,225 +501,220 @@
             {
                 id: 'aurora',
                 name: "Aurora Prime",
-                deck: "Deck 12 - Aft",
+                deck: "Deck 12 - Aft Promenade",
                 img: "assets/aurora_prime.png",
-                desc: "Sophisticated French cuisine served in an atmosphere of pure elegance, featuring lunar views and crystal accents.",
+                desc: "Sophisticated French cuisine served in an atmosphere of pure elegance. Every dish is a tribute to lunar aesthetics and Swiss culinary precision.",
+                tagline: "The Zenith of French Gastronomy",
                 menu: {
                     starters: [
-                        { name: "Truffle Burrata", desc: "Aged Balsamic & Basil Oil" },
-                        { name: "Lobster Bisque", desc: "Cognac Cream" },
-                        { name: "Citrus-Cured Salmon", desc: "Fennel & Pink Peppercorn" }
+                        { name: "Truffle Burrata", desc: "Aged Balsamic, Basil Oil, Heirloom Tomato Crumble" },
+                        { name: "Lobster Bisque", desc: "Cognac Infused Cream, Chive Dust" },
+                        { name: "Citrus Cured Salmon", desc: "Fennel Pollen, Pink Peppercorn, Radish" }
                     ],
                     mains: [
-                        { name: "Filet Mignon", desc: "Black Garlic Jus & Potato Gratin" },
-                        { name: "Sea Bass en Papillote", desc: "Lemon Verbena & Garden Vegetables" },
-                        { name: "Duck Breast à l’Orange", desc: "Caramelized Endive" }
+                        { name: "Filet Mignon", desc: "Black Garlic Jus, Potato Gratin, Bone Marrow" },
+                        { name: "Sea Bass en Papillote", desc: "Lemon Verbena, Seasonal Garden Vegetables" },
+                        { name: "Duck Breast à l’Orange", desc: "Caramelized Endive, Spiced Fig" }
                     ],
                     desserts: [
-                        { name: "72% Chocolate Fondant", desc: "Raspberry Coulis" },
-                        { name: "Vanilla Bean Panna Cotta", desc: "Elderflower Jelly" }
+                        { name: "72% Chocolate Fondant", desc: "Espresso Soil, Raspberry Coulis" },
+                        { name: "Vanilla Bean Panna Cotta", desc: "Elderflower Jelly, Crystalized Honey" }
                     ]
                 }
             },
             {
                 id: 'celestia',
                 name: "Celestia",
-                deck: "Deck 9 - Aft",
+                deck: "Deck 9 - Aft Terrace",
                 img: "assets/celestia.jpg",
-                desc: "A bright, airy escape serving modern Mediterranean classics with floor-to-ceiling ocean views through magnificent arches.",
+                desc: "An ethereal Mediterranean escape. Dine under magnificent blue arches with panoramic ocean vistas that stretch to the horizon.",
+                tagline: "Where Sea and Sky Converge",
                 menu: {
                     starters: [
-                        { name: "Burrata Caprese", desc: "Heirloom Tomatoes & Basil Oil" },
-                        { name: "Grilled Octopus", desc: "Lemon Oregano Dressing" },
-                        { name: "Mediterranean Mezze", desc: "Hummus, Olives, Warm Pita" }
+                        { name: "Burrata Caprese", desc: "Summer Tomatoes, Basil Emulsion" },
+                        { name: "Grilled Octopus", desc: "Lemon Oregano Vinaigrette, Smoked Paprika" },
+                        { name: "Mediterranean Mezze", desc: "Traditional Hummus, Kalamata, Warm Flatbread" }
                     ],
                     mains: [
-                        { name: "Moroccan Lamb Tagine", desc: "Apricots & Almonds" },
-                        { name: "Seared Branzino", desc: "Olive Tapenade & Lemon" },
-                        { name: "Saffron Seafood Stew", desc: "White Wine Broth" }
+                        { name: "Moroccan Lamb Tagine", desc: "Apricots, Blanched Almonds, Harissa" },
+                        { name: "Seared Branzino", desc: "Olive Tapenade, Meyer Lemon" },
+                        { name: "Saffron Seafood Stew", desc: "White Wine Emulsion, Sourdough" }
                     ],
                     desserts: [
-                        { name: "Baklava Mille-Feuille", desc: "Honey & Pistachios" },
-                        { name: "Olive Oil Citrus Cake", desc: "Lemon Curd" }
+                        { name: "Baklava Mille-Feuille", desc: "Orange Blossom Honey, Pistachio" },
+                        { name: "Olive Oil Citrus Cake", desc: "Candied Zest, Whipped Ricotta" }
                     ]
                 }
             },
             {
                 id: 'ember',
                 name: "Horizon Ember",
-                deck: "Deck 10 - Upper",
-                img: "assets/horizon_ember.png",
-                desc: "Experience the primal allure of fire. Expertly charred meats and sea delicacies prepared over open embers.",
+                deck: "Deck 10 - Poolside Upper",
+                img: "https://images.unsplash.com/photo-1514362545857-3bc16c4c7d1b?q=80&w=2070&auto=format&fit=crop",
+                desc: "Experience the primal allure of fire. Expertly charred meats and deep-sea delicacies prepared over glowing embers in an intimate, dark-wood setting.",
+                tagline: "Fire, Smoke, and Soul",
                 menu: {
                     starters: [
-                        { name: "Smoked Bone Marrow", desc: "Charcoal Crostini" },
-                        { name: "Ember-Grilled Shrimp", desc: "Chili-Lime Butter" },
-                        { name: "Charred Beet Carpaccio", desc: "Toasted Almonds" }
+                        { name: "Smoked Bone Marrow", desc: "Charcoal Crostini, Sea Salt" },
+                        { name: "Ember-Grilled Shrimp", desc: "Chili-Lime Infused Butter" },
+                        { name: "Charred Beet Carpaccio", desc: "Toasted Almonds, Goat Cheese" }
                     ],
                     mains: [
-                        { name: "Aged Ribeye", desc: "Smoked Salt & Garlic Butter" },
-                        { name: "Wagyu Striploin", desc: "Truffle Ember Sauce" },
-                        { name: "Fire-Grilled King Salmon", desc: "Citrus Glaze" }
+                        { name: "Dry-Aged Ribeye", desc: "Smoked Salt, Confit Garlic" },
+                        { name: "Wagyu Striploin", desc: "Black Truffle Ember Sauce" },
+                        { name: "Fire-Grilled King Salmon", desc: "Citrus Glaze, Ash-Roasted Leek" }
                     ],
                     desserts: [
-                        { name: "Bourbon Chocolate Pie", desc: "Salted Caramel" },
-                        { name: "Caramelized Banana Tart", desc: "Rum Caramel" }
+                        { name: "Bourbon Chocolate Pie", desc: "Salted Caramel Dust" },
+                        { name: "Caramelized Banana Tart", desc: "Spiced Rum Sauce" }
                     ]
                 }
             },
             {
                 id: 'saffron',
                 name: "Saffron Tide",
-                deck: "Deck 8 - Midship",
-                img: "assets/saffron_tide.png",
-                desc: "A vibrant fusion of traditional Indian spice and modern nautical flair. A feast for the senses.",
+                deck: "Deck 8 - Midship Atrium",
+                img: "https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?q=80&w=2070&auto=format&fit=crop",
+                desc: "A vibrant nautical journey through India's coastlines. Intricate flavors, golden spices, and an atmosphere lit by 100 lanterns.",
+                tagline: "The Jewel of the Ocean",
                 menu: {
                     starters: [
-                        { name: "Tamarind Prawns", desc: "Charred Lime" },
-                        { name: "Paneer Tikka", desc: "Coriander-Mint Chutney" },
+                        { name: "Tamarind Prawns", desc: "Charred Lime, Mango Chutney" },
+                        { name: "Paneer Tikka", desc: "Coriander Mint Foam" },
                         { name: "Tandoori Lamb Lollipops", desc: "Smoked Chili Yogurt" }
                     ],
                     mains: [
-                        { name: "Butter Lobster Masala", desc: "Fragrant Basmati" },
-                        { name: "Slow-Cooked Lamb Rogan", desc: "Saffron Pilaf" },
-                        { name: "Tandoori Sea Bass", desc: "Tomato-Fenugreek Reduction" }
+                        { name: "Lobster Masala", desc: "Butter Poached, Fragrant Saffron Rice" },
+                        { name: "Slow-Cooked Lamb Rogan", desc: "Kashmiri Chili, Pilaf" },
+                        { name: "Tandoori Sea Bass", desc: "Fenugreek-Tomato Reduction" }
                     ],
                     desserts: [
-                        { name: "Pistachio Kulfi", desc: "Rose Petal Sugar" },
-                        { name: "Mango Lassi Cheesecake", desc: "Cardamom Crust" }
+                        { name: "Pistachio Kulfi", desc: "Cardamom Syrup, Silver Leaf" },
+                        { name: "Cardamom Crème Brûlée", desc: "Mango Coulis" }
                     ]
                 }
             }
         ];
 
-        let currentRestaurant = null;
-        let selectedTable = null;
+        let selected = {
+            restaurant: null,
+            size: '2',
+            time: '18:30',
+            table: 'Main Dining Hall'
+        };
 
-        function init() {
-            const grid = document.getElementById('restaurant-grid');
-            grid.innerHTML = restaurants.map(r => `
-                <div class="restaurant-card">
-                    <img src="${r.img}" alt="${r.name}" class="restaurant-img" onerror="this.src='https://placehold.co/600x400?text=${r.name}'">
-                    <div class="restaurant-info">
-                        <div class="deck-badge">${r.deck}</div>
-                        <h3 class="restaurant-title">${r.name}</h3>
-                        <p class="restaurant-desc">${r.desc}</p>
-                        <div class="card-actions">
-                            <button class="btn btn-outline" onclick="viewDetail('${r.id}', 'menu')">View Menu</button>
-                            <button class="btn btn-primary" onclick="viewDetail('${r.id}', 'reserve')">Reserve</button>
+        const tg = window.Telegram.WebApp;
+        tg.expand();
+        tg.ready();
+
+        function renderList() {
+            const list = document.getElementById('restaurant-list');
+            list.innerHTML = restaurants.map(r => `
+                <div class="rest-card premium-card" onclick="openModal('${r.id}')">
+                    <div class="rest-img-wrapper">
+                        <img src="${r.img}" alt="${r.name}" class="rest-img" onerror="this.src='https://placehold.co/800x600?text=${r.name}'">
+                        <div class="rest-overlay">
+                            <div class="deck-info">${r.deck}</div>
+                            <h2 class="rest-name">${r.name}</h2>
                         </div>
+                    </div>
+                    <div class="rest-footer">
+                        <button class="premium-btn btn-outline" style="padding: 12px; font-size: 0.8rem;" onclick="event.stopPropagation(); openModal('${r.id}', 'menu')">Menu</button>
+                        <button class="premium-btn" style="padding: 12px; font-size: 0.8rem;" onclick="event.stopPropagation(); openModal('${r.id}', 'reserve')">Book Table</button>
                     </div>
                 </div>
             `).join('');
         }
 
-        function viewDetail(id, tab = 'overview') {
-            currentRestaurant = restaurants.find(r => r.id === id);
-            document.getElementById('detail-overlay').classList.add('active');
+        function openModal(id, tab = 'overview') {
+            selected.restaurant = restaurants.find(r => r.id === id);
+            document.getElementById('modal-title').innerText = selected.restaurant.name;
 
-            // Build Content
-            document.getElementById('overview').innerHTML = `
-                <img src="${currentRestaurant.img}" alt="${currentRestaurant.name}" style="width:100%; border-radius:12px; margin-bottom:25px;" onerror="this.src='https://placehold.co/600x400?text=${currentRestaurant.name}'">
-                <h2 style="font-size:2rem; margin-bottom:10px;">${currentRestaurant.name}</h2>
-                <div style="color:var(--accent-gold); font-weight:600; margin-bottom:20px;">${currentRestaurant.deck}</div>
-                <p style="color:var(--text-muted); line-height:1.8;">${currentRestaurant.desc}</p>
-                <div style="margin-top:30px; padding:20px; background:white; border-radius:12px; border:1px solid var(--glass-border);">
-                    <h5 style="text-transform:uppercase; font-size:0.75rem; letter-spacing:0.1em; color:var(--accent-gold); margin-bottom:10px;">Vibe</h5>
-                    <p style="font-size:0.9rem;">Modern Fine Dining • Dress Code: Smart Casual</p>
+            // Build Overivew
+            document.getElementById('overview-content').innerHTML = `
+                <div style="font-family: 'Playfair Display', serif; font-size: 1.4rem; color: var(--accent-gold); margin-bottom: 20px; text-align: center;">"${selected.restaurant.tagline}"</div>
+                <p style="color: var(--text-secondary); line-height: 1.8; margin-bottom: 30px; text-align: center;">${selected.restaurant.desc}</p>
+                <div style="display: flex; justify-content: space-around; padding: 20px; background: var(--glass); border-radius: 16px;">
+                    <div style="text-align: center;">
+                        <div style="font-size: 0.6rem; color: var(--accent-gold);">LOCATED</div>
+                        <div style="font-size: 0.9rem;">${selected.restaurant.deck.split(' - ')[0]}</div>
+                    </div>
+                    <div style="text-align: center;">
+                        <div style="font-size: 0.6rem; color: var(--accent-gold);">ATTIRE</div>
+                        <div style="font-size: 0.9rem;">Elegant</div>
+                    </div>
                 </div>
             `;
 
-            const menu = currentRestaurant.menu;
-            document.getElementById('menu').innerHTML = `
-                <div class="menu-section">
-                    <h4>Starters</h4>
-                    ${menu.starters.map(i => `<div class="menu-item"><div class="item-name">${i.name}</div><div class="item-desc">${i.desc}</div></div>`).join('')}
-                </div>
-                <div class="menu-section">
-                    <h4>Main Courses</h4>
-                    ${menu.mains.map(i => `<div class="menu-item"><div class="item-name">${i.name}</div><div class="item-desc">${i.desc}</div></div>`).join('')}
-                </div>
-                <div class="menu-section">
-                    <h4>Desserts</h4>
-                    ${menu.desserts.map(i => `<div class="menu-item"><div class="item-name">${i.name}</div><div class="item-desc">${i.desc}</div></div>`).join('')}
-                </div>
+            // Build Menu
+            const m = selected.restaurant.menu;
+            document.getElementById('menu-content').innerHTML = `
+                 <div><div class="menu-category-title">Aperitifs</div>${m.starters.map(i => `<div style="margin-bottom: 20px;"><div class="menu-item-row"><span class="menu-item-name">${i.name}</span></div><p class="menu-item-desc">${i.desc}</p></div>`).join('')}</div>
+                 <div><div class="menu-category-title">Plats Principaux</div>${m.mains.map(i => `<div style="margin-bottom: 20px;"><div class="menu-item-row"><span class="menu-item-name">${i.name}</span></div><p class="menu-item-desc">${i.desc}</p></div>`).join('')}</div>
+                 <div><div class="menu-category-title">Fin Sucre</div>${m.desserts.map(i => `<div style="margin-bottom: 20px;"><div class="menu-item-row"><span class="menu-item-name">${i.name}</span></div><p class="menu-item-desc">${i.desc}</p></div>`).join('')}</div>
             `;
 
-            showTab(tab);
+            document.getElementById('detail-view').classList.add('active');
 
-            if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.HapticFeedback) {
-                window.Telegram.WebApp.HapticFeedback.impactOccurred('medium');
-            }
+            const targetTab = document.getElementById('tab-' + tab);
+            switchTab(targetTab, tab + '-step');
+
+            if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('medium');
         }
 
-        function showTab(id) {
-            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-
-            document.getElementById(id).classList.add('active');
-            // Find tab button by text match
-            document.querySelectorAll('.tab').forEach(t => {
-                if (t.innerText.toLowerCase().includes(id)) t.classList.add('active');
-            });
-
-            // Reset Reserve Steps
-            if (id === 'reserve') {
-                nextStep(1);
-            }
+        function closeModal() {
+            document.getElementById('detail-view').classList.remove('active');
         }
 
-        function hideDetail() {
-            document.getElementById('detail-overlay').classList.remove('active');
+        function switchTab(el, stepId) {
+            document.querySelectorAll('.modal-tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.step-container').forEach(s => s.classList.remove('active'));
+
+            el.classList.add('active');
+            document.getElementById(stepId).classList.add('active');
+            if (tg.HapticFeedback) tg.HapticFeedback.selectionChanged();
         }
 
-        function nextStep(step) {
-            document.querySelectorAll('.reserve-step').forEach(s => s.classList.remove('active'));
-            document.getElementById(`step-${step}`).classList.add('active');
-
-            if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.HapticFeedback) {
-                window.Telegram.WebApp.HapticFeedback.selectionChanged();
-            }
-        }
-
-        function selectTable(el, type) {
-            selectedTable = type;
-            document.querySelectorAll('.table-option').forEach(o => o.classList.remove('selected'));
+        function selectOption(el, type, val) {
+            el.parentElement.querySelectorAll('.custom-option').forEach(o => o.classList.remove('selected'));
             el.classList.add('selected');
-
-            if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.HapticFeedback) {
-                window.Telegram.WebApp.HapticFeedback.selectionChanged();
-            }
+            selected[type] = val;
+            if (tg.HapticFeedback) tg.HapticFeedback.selectionChanged();
         }
 
-        function completeReservation() {
-            const name = document.getElementById('user-name').value;
-            const contact = document.getElementById('user-contact').value;
-            const size = document.getElementById('headcount').value;
-            const time = document.getElementById('time').value;
+        function goToBookingStep(step) {
+            document.getElementById('booking-s1').style.display = 'none';
+            document.getElementById('booking-s2').style.display = 'none';
+            document.getElementById('booking-s3').style.display = 'none';
+            document.getElementById(`booking-s${step}`).style.display = 'block';
+            if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
+        }
+
+        function finishBooking() {
+            const name = document.getElementById('input-name').value;
+            const contact = document.getElementById('input-contact').value;
 
             if (!name || !contact) {
-                alert("Please provide your name and contact info.");
+                tg.showAlert("Excellent service requires a name and contact for your table.");
                 return;
             }
 
-            const summary = `${currentRestaurant.name} • ${size} Guest(s) • ${time}<br>${selectedTable || 'Main Hall'} Selection`;
-            document.getElementById('reservation-summary').innerHTML = summary;
-            document.getElementById('success-screen').style.display = 'flex';
+            document.getElementById('conf-rest').innerText = selected.restaurant.name;
+            document.getElementById('conf-details').innerHTML = `
+                <strong>Table for ${selected.size}</strong><br>
+                ${selected.time} • Today<br>
+                <em>${selected.table}</em>
+            `;
 
-            if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.HapticFeedback) {
-                window.Telegram.WebApp.HapticFeedback.notificationOccurred('success');
-            }
+            document.getElementById('success-view').style.display = 'flex';
+            if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
         }
 
         function closeApp() {
-            if (window.Telegram && window.Telegram.WebApp) {
-                window.Telegram.WebApp.close();
-            } else {
-                location.reload();
-            }
+            tg.close();
         }
 
-        init();
+        renderList();
     </script>
 </body>
 
