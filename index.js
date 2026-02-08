@@ -1110,39 +1110,54 @@ async function renderTextChoiceGalleryAndButtonsLast(ctx, raw, maybeChoice) {
   if (calendlyUrl && CALENDLY_MINI_APP_URL) {
     if (DEBUG_BUTTONS) console.log('[calendly] Found URL:', calendlyUrl);
     // 1) Clean the text (remove the iframe code or bare link)
-    // The [^]* matches any character including newlines
     const iframeRe = /<iframe[^>]*src=["']https:\/\/calendly\.com\/[^"']*["'][^>]*>[^]*?<\/iframe>/gi;
     textToDisplay = raw.replace(iframeRe, '').trim();
 
-    // Also remove the bare URL if it's the same as calendlyUrl and it's basically sitting alone
     if (textToDisplay.includes(calendlyUrl)) {
       textToDisplay = textToDisplay.replace(calendlyUrl, '').replace(/\[\]\(\)/g, '').trim();
     }
 
-    // 2) If the text is now empty (because it was only an iframe), provide a prompt
-    // but ONLY if it wouldn't be a redundant duplicate
     const PROMPT = 'Please use the button below to complete your booking:';
     if (!textToDisplay) {
-      // Check if the previous trace was already this exact prompt
       const previousTrace = ctx.state?.lastTraceType === 'text' ? ctx.state?.lastTraceText : null;
-      if (previousTrace?.includes('Please use the Calendly window below') || previousTrace?.includes('complete your booking')) {
-        // Skip adding the prompt again, the button will attach to the previous message or stand alone
-        textToDisplay = '';
-      } else {
+      if (!(previousTrace?.includes('Please use the Calendly window below') || previousTrace?.includes('complete your booking'))) {
         textToDisplay = PROMPT;
       }
     }
 
-    // 3) Create the button
-    syntheticCalendlyButton = {
-      name: '📅 Book Now',
-      request: {
-        url: calendlyUrl,
-      },
-    };
-    if (DEBUG_BUTTONS) console.log('[calendly] Created synthetic button:', syntheticCalendlyButton);
+    syntheticCalendlyButton = { name: '📅 Book Now', request: { url: calendlyUrl } };
   } else if (calendlyUrl) {
     console.warn('[calendly] Found URL but CALENDLY_MINI_APP_URL is missing or empty!');
+  }
+
+  // Handle Mini App link detection (Reservations & Marketplace)
+  let syntheticMiniAppButtons = [];
+  const miniAppConfigs = [
+    { url: RESERVATIONS_MINI_APP_URL, label: '🍴 Book Dining', pattern: /reservations\.html/i },
+    { url: MARKETPLACE_MINI_APP_URL, label: '🛍️ Open Marketplace', pattern: /marketplace\.html/i }
+  ];
+
+  for (const config of miniAppConfigs) {
+    if (!config.url) continue;
+
+    // Look for markdown links or bare URLs matching the pattern
+    const mdRe = new RegExp(`\\[([^\\]]+)\\]\\([^\\s)]*${config.pattern.source}[^\\s)]*\\)`, 'gi');
+    const bareRe = new RegExp(`https?://[^\\s<]*${config.pattern.source}[^\\s<]*`, 'gi');
+
+    let found = false;
+    textToDisplay = textToDisplay.replace(mdRe, () => {
+      found = true;
+      return '';
+    });
+    textToDisplay = textToDisplay.replace(bareRe, () => {
+      found = true;
+      return '';
+    });
+
+    if (found) {
+      textToDisplay = textToDisplay.replace(/👉\s*\(\s*\)/g, '').replace(/👉/g, '').trim();
+      syntheticMiniAppButtons.push({ name: config.label, request: { url: config.url } });
+    }
   }
 
   const { head, items, tail } = parseGalleryBlocks(textToDisplay);
@@ -1150,15 +1165,16 @@ async function renderTextChoiceGalleryAndButtonsLast(ctx, raw, maybeChoice) {
   let consumed = false;
   let buttons = maybeChoice?.payload?.buttons ? [...maybeChoice.payload.buttons] : [];
 
-  // Add our synthetic button if we found a Calendly link
-  if (syntheticCalendlyButton) {
-    if (DEBUG_BUTTONS) console.log('[calendly] Active buttons before unshift:', buttons.length);
+  // Add our synthetic buttons
+  const allSynthetic = [...syntheticMiniAppButtons];
+  if (syntheticCalendlyButton) allSynthetic.push(syntheticCalendlyButton);
+
+  for (const synBtn of allSynthetic) {
+    if (DEBUG_BUTTONS) console.log('[auto-button] Processing synthetic:', synBtn.name);
     // Check if it already exists (unlikely but safe)
-    if (!buttons.some((b) => extractUrlFromButton(b)?.includes('calendly.com'))) {
-      buttons.unshift(syntheticCalendlyButton);
-      if (DEBUG_BUTTONS) console.log('[calendly] Success: Unshifted button. Total now:', buttons.length);
-    } else {
-      if (DEBUG_BUTTONS) console.log('[calendly] Button skipped because it already exists in the choice trace.');
+    const synUrl = extractUrlFromButton(synBtn);
+    if (!buttons.some((b) => extractUrlFromButton(b) === synUrl)) {
+      buttons.unshift(synBtn);
     }
   }
 
