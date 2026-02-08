@@ -1132,31 +1132,15 @@ async function renderTextChoiceGalleryAndButtonsLast(ctx, raw, maybeChoice) {
 
   // Handle Mini App link detection (Reservations & Marketplace)
   let syntheticMiniAppButtons = [];
-  const miniAppConfigs = [
+  const miniConfigs = [
     { url: RESERVATIONS_MINI_APP_URL, label: '🍴 Book Dining', pattern: /reservations\.html/i },
     { url: MARKETPLACE_MINI_APP_URL, label: '🛍️ Open Marketplace', pattern: /marketplace\.html/i }
   ];
 
-  for (const config of miniAppConfigs) {
-    if (!config.url) continue;
-
-    // Look for markdown links or bare URLs matching the pattern
-    const mdRe = new RegExp(`\\[([^\\]]+)\\]\\([^\\s)]*${config.pattern.source}[^\\s)]*\\)`, 'gi');
-    const bareRe = new RegExp(`https?://[^\\s<]*${config.pattern.source}[^\\s<]*`, 'gi');
-
-    let found = false;
-    textToDisplay = textToDisplay.replace(mdRe, () => {
-      found = true;
-      return '';
-    });
-    textToDisplay = textToDisplay.replace(bareRe, () => {
-      found = true;
-      return '';
-    });
-
-    if (found) {
-      textToDisplay = textToDisplay.replace(/👉\s*\(\s*\)/g, '').replace(/👉/g, '').trim();
+  for (const config of miniConfigs) {
+    if (config.url && config.pattern.test(raw)) {
       syntheticMiniAppButtons.push({ name: config.label, request: { url: config.url } });
+      if (DEBUG_BUTTONS) console.log(`[auto-button] Added synthetic ${config.label}`);
     }
   }
 
