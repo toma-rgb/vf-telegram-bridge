@@ -44,6 +44,8 @@ const LOCAL_UTC_OFFSET_HOURS = parseFloat(process.env.LOCAL_UTC_OFFSET_HOURS || 
 const MEDIA_CACHE_PATH = process.env.MEDIA_CACHE_PATH || path.join(__dirname, 'media-cache.json');
 const MEDIA_CACHE_MAX_ENTRIES = parseInt(process.env.MEDIA_CACHE_MAX_ENTRIES || '1000', 10);
 const CALENDLY_MINI_APP_URL = process.env.CALENDLY_MINI_APP_URL || ''; // Link to your hosted calendly.html
+const MARKETPLACE_MINI_APP_URL = process.env.MARKETPLACE_MINI_APP_URL || ''; // Link to your hosted marketplace.html
+const RESERVATIONS_MINI_APP_URL = process.env.RESERVATIONS_MINI_APP_URL || ''; // Link to your hosted reservations.html
 const DEBUG_STT = /^true$/i.test(process.env.DEBUG_STT || '');
 
 
@@ -916,6 +918,12 @@ function makeKeyboard(userId, buttons) {
         // Swap for Mini App
         const webAppUrl = `${CALENDLY_MINI_APP_URL}?url=${encodeURIComponent(url)}`;
         buttonObj = { text, web_app: { url: webAppUrl } };
+      } else if (MARKETPLACE_MINI_APP_URL && (url.toLowerCase().includes('marketplace') || url.toLowerCase().includes('dutyfree'))) {
+        // Swap for Marketplace Mini App
+        buttonObj = { text, web_app: { url: MARKETPLACE_MINI_APP_URL } };
+      } else if (RESERVATIONS_MINI_APP_URL && url.toLowerCase().includes('reservations')) {
+        // Swap for Reservations Mini App
+        buttonObj = { text, web_app: { url: RESERVATIONS_MINI_APP_URL } };
       } else {
         buttonObj = { text, url };
       }
@@ -965,6 +973,12 @@ function makeCardV2Keyboard(userId, buttons = []) {
         // Swap for Mini App
         const webAppUrl = `${CALENDLY_MINI_APP_URL}?url=${encodeURIComponent(url)}`;
         buttonObj = { text: label, web_app: { url: webAppUrl } };
+      } else if (MARKETPLACE_MINI_APP_URL && (url.toLowerCase().includes('marketplace') || url.toLowerCase().includes('dutyfree'))) {
+        // Swap for Marketplace Mini App
+        buttonObj = { text: label, web_app: { url: MARKETPLACE_MINI_APP_URL } };
+      } else if (RESERVATIONS_MINI_APP_URL && url.toLowerCase().includes('reservations')) {
+        // Swap for Reservations Mini App
+        buttonObj = { text: label, web_app: { url: RESERVATIONS_MINI_APP_URL } };
       } else {
         buttonObj = { text: label, url };
       }
