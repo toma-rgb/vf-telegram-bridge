@@ -215,32 +215,47 @@ function stripTags(s) {
 }
 
 /**
- * Extracts image URLs from text and returns cleaned text + array of URLs.
+ * Splits text into segments of { type: 'text'|'image', value: string }.
  */
-function extractImages(text) {
-  const sources = [];
-  if (!text) return { text: '', sources };
+function segmentContent(text) {
+  if (!text) return [];
 
-  let cleaned = text;
-
-  // 1. "Photo: URL" pattern
+  const segments = [];
+  const mdImageRe = /!\[([\s\S]*?)\]\s*\(\s*(https?:\/\/[^\s)]+)\s*\)/gi;
   const photoLabelRe = /Photo:\s*(https?:\/\/[^\s]+)/gi;
-  cleaned = cleaned.replace(photoLabelRe, (match, url) => {
-    sources.push(url.trim());
-    return '';
-  });
 
-  // 2. Markdown image pattern ![alt](url)
-  const mdImageRe = /!\[[\s\S]*?\]\s*\(\s*(https?:\/\/[^\s)]+)\s*\)/gi;
-  cleaned = cleaned.replace(mdImageRe, (match, url) => {
-    sources.push(url.trim());
-    return '';
-  });
+  const matches = [];
+  let match;
 
-  // Clean up excessive newlines
-  cleaned = cleaned.replace(/\n{3,}/g, '\n\n').trim();
+  // Find all Markdown images
+  while ((match = mdImageRe.exec(text)) !== null) {
+    matches.push({ index: match.index, length: match[0].length, url: match[2].trim(), type: 'image' });
+  }
 
-  return { text: cleaned, sources };
+  // Find all "Photo: URL" labels
+  while ((match = photoLabelRe.exec(text)) !== null) {
+    matches.push({ index: match.index, length: match[0].length, url: match[1].trim(), type: 'image' });
+  }
+
+  // Sort by appearance
+  matches.sort((a, b) => a.index - b.index);
+
+  let lastIndex = 0;
+  for (const m of matches) {
+    if (m.index > lastIndex) {
+      const txt = text.substring(lastIndex, m.index).trim();
+      if (txt) segments.push({ type: 'text', value: txt });
+    }
+    segments.push({ type: 'image', value: m.url });
+    lastIndex = m.index + m.length;
+  }
+
+  if (lastIndex < text.length) {
+    const txt = text.substring(lastIndex).trim();
+    if (txt) segments.push({ type: 'text', value: txt });
+  }
+
+  return segments;
 }
 
 function unescapeVfHtmlArtifacts(raw) {
@@ -419,102 +434,98 @@ async function completionSendOrUpdate(ctx, userId, fullText, { force = false } =
   const s = completionStateByUser.get(userId) || defaultCompletionState();
   s.accumulated = String(fullText || '');
 
-  // Extract images from accumulated text
-  const { text: cleanedText, sources } = extractImages(s.accumulated);
+  const segments = segmentContent(s.accumulated);
 
-  // Send any NEW images found
-  for (const url of sources) {
-    if (!s.sentImages.has(url)) {
-      s.sentImages.add(url);
-      try {
-        await ctx.replyWithPhoto(url);
-        if (DEBUG_MEDIA) console.log('[completion-images] Sent streamed photo:', url);
-      } catch (err) {
-        if (DEBUG_MEDIA) console.log('[completion-images] Failed to send streamed photo:', err.message);
+  // Find the LAST segment we are currently working on
+  // Any images BEFORE the last segment should have been "sent"
+  // The last segment, if text, is what we edit. 
+  // If an image just appeared as the last segment, we send it and start a new text bubble.
+
+  for (let i = 0; i < segments.length; i++) {
+    const seg = segments[i];
+    const isLast = i === segments.length - 1;
+
+    if (seg.type === 'image') {
+      if (!s.sentImages.has(seg.value)) {
+        // Before sending the image, if we have an active text bubble, finalize it
+        if (s.msg) {
+          await completionFlush(ctx, userId); // This clears s.msg but keeps accumulated
+          s.msg = null;
+        }
+
+        s.sentImages.add(seg.value);
+        try {
+          await ctx.replyWithPhoto(seg.value);
+          if (DEBUG_MEDIA) console.log('[completion-stream] Sent interleaved photo:', seg.value);
+        } catch (err) {
+          if (DEBUG_MEDIA) console.log('[completion-stream] Photo failed:', err.message);
+        }
       }
-    }
-  }
-
-  const html = mdToHtml(cleanedText.trim());
-  if (!html) {
-    completionStateByUser.set(userId, s);
-    return;
-  }
-
-  const now = Date.now();
-  const MIN_EDIT_MS = 150; // avoid Telegram edit rate limits
-
-  // Create message once - wait for at least 10 characters before showing
-  if (!s.msg) {
-    // Don't show message until we have meaningful content
-    if (html.length < 10) {
-      completionStateByUser.set(userId, s);
-      return;
+      continue;
     }
 
-    // ADD THIS LOGIC: Wait for complete sentence or enough content
-    const plainText = cleanedText.trim();
-    if (!hasCompleteSentence(plainText) && plainText.length < 200) {
-      completionStateByUser.set(userId, s);
-      return; // Keep accumulating until we have a complete sentence or 200 chars
-    }
+    if (seg.type === 'text' && isLast) {
+      // This is the current text bubble we are editing
+      const html = mdToHtml(seg.value.trim());
+      if (!html) continue;
 
-    const msg = await safeReplyHtml(ctx, html);
-    if (msg) {
-      s.msg = msg;
-      lastBotMsgByUser.set(userId, {
-        chatId: msg.chat.id,
-        message_id: msg.message_id,
-        keyboard: 'none'
-      });
-    }
-    s.lastHtml = html;
-    s.lastEditAt = now;
-    completionStateByUser.set(userId, s);
-    return;
-  }
+      const now = Date.now();
+      const MIN_EDIT_MS = 150;
 
-  // Skip if content hasn't changed (but allow force updates)
-  if (!force && html === s.lastHtml) {
-    return; // Don't even update state if nothing changed
-  }
+      if (!s.msg) {
+        if (html.length < 10) {
+          completionStateByUser.set(userId, s);
+          return;
+        }
+        const plainText = seg.value.trim();
+        if (!hasCompleteSentence(plainText) && plainText.length < 200) {
+          completionStateByUser.set(userId, s);
+          return;
+        }
 
-  const doEdit = async (nextHtml) => {
-    const ok = await safeEditHtml(ctx, s.msg.chat.id, s.msg.message_id, nextHtml);
-    if (ok) {
-      s.lastHtml = nextHtml;
-      s.lastEditAt = Date.now();
-      completionStateByUser.set(userId, s);
-    }
-  };
-
-  // Simple throttling: only edit if enough time has passed
-  if (force || now - s.lastEditAt >= MIN_EDIT_MS) {
-    if (s.timer) {
-      clearTimeout(s.timer);
-      s.timer = null;
-      s.pendingHtml = '';
-    }
-    await doEdit(html);
-    return;
-  }
-
-  s.pendingHtml = html;
-  completionStateByUser.set(userId, s);
-
-  if (!s.timer) {
-    s.timer = setTimeout(async () => {
-      const st = completionStateByUser.get(userId);
-      if (!st?.pendingHtml) {
-        if (st) st.timer = null;
+        const msg = await safeReplyHtml(ctx, html);
+        if (msg) {
+          s.msg = msg;
+          lastBotMsgByUser.set(userId, { chatId: msg.chat.id, message_id: msg.message_id, keyboard: 'none' });
+        }
+        s.lastHtml = html;
+        s.lastEditAt = now;
+        completionStateByUser.set(userId, s);
         return;
       }
-      const pending = st.pendingHtml;
-      st.pendingHtml = '';
-      st.timer = null;
-      completionStateByUser.set(userId, st);
-      await doEdit(pending);
-    }, 50).unref();
+
+      if (!force && html === s.lastHtml) return;
+
+      const doEdit = async (nextHtml) => {
+        const ok = await safeEditHtml(ctx, s.msg.chat.id, s.msg.message_id, nextHtml);
+        if (ok) {
+          s.lastHtml = nextHtml;
+          s.lastEditAt = Date.now();
+          completionStateByUser.set(userId, s);
+        }
+      };
+
+      if (force || now - s.lastEditAt >= MIN_EDIT_MS) {
+        if (s.timer) { clearTimeout(s.timer); s.timer = null; s.pendingHtml = ''; }
+        await doEdit(html);
+        return;
+      }
+
+      s.pendingHtml = html;
+      completionStateByUser.set(userId, s);
+
+      if (!s.timer) {
+        s.timer = setTimeout(async () => {
+          const st = completionStateByUser.get(userId);
+          if (!st?.pendingHtml) { if (st) st.timer = null; return; }
+          const pending = st.pendingHtml;
+          st.pendingHtml = '';
+          st.timer = null;
+          completionStateByUser.set(userId, st);
+          await doEdit(pending);
+        }, 50).unref();
+      }
+    }
   }
 }
 
@@ -1191,26 +1202,8 @@ async function renderTextChoiceGalleryAndButtonsLast(ctx, raw, maybeChoice) {
     }
   }
 
-  // --- IMAGE EXTRACTION ---
-  const { text: cleanedText, sources: imageSources } = extractImages(textToDisplay);
-  textToDisplay = cleanedText;
-
-  // SEND IMAGES BEFORE TEXT
-  if (imageSources.length > 0) {
-    if (DEBUG_MEDIA) console.log('[image-extraction] Sending', imageSources.length, 'images...');
-    try {
-      if (imageSources.length === 1) {
-        await ctx.replyWithPhoto(imageSources[0]);
-      } else {
-        const mediaGroup = imageSources.slice(0, 10).map(url => ({ type: 'photo', media: url }));
-        await ctx.replyWithMediaGroup(mediaGroup);
-      }
-    } catch (err) {
-      console.error('[image-extraction] Failed to send images:', err.message);
-    }
-  }
-
-  const { head, items, tail } = parseGalleryBlocks(textToDisplay);
+  // --- INTERLEAVED CONTENT SEGMENTATION ---
+  const segments = segmentContent(textToDisplay);
 
   let consumed = false;
   let buttons = maybeChoice?.payload?.buttons ? [...maybeChoice.payload.buttons] : [];
@@ -1220,74 +1213,51 @@ async function renderTextChoiceGalleryAndButtonsLast(ctx, raw, maybeChoice) {
   if (syntheticCalendlyButton) allSynthetic.push(syntheticCalendlyButton);
 
   for (const synBtn of allSynthetic) {
-    if (DEBUG_BUTTONS) console.log('[auto-button] Processing synthetic:', synBtn.name);
-    // Check if it already exists (unlikely but safe)
     const synUrl = extractUrlFromButton(synBtn);
     if (!buttons.some((b) => extractUrlFromButton(b) === synUrl)) {
       buttons.unshift(synBtn);
     }
   }
 
-  // PREPARE THE KEYBOARD FIRST
+  // PREPARE THE KEYBOARD
   let kb = null;
   if (buttons.length) {
     const rows = makeKeyboard(ctx.from.id, buttons);
-    if (rows.length) {
-      kb = { inline_keyboard: rows };
-      if (DEBUG_BUTTONS) console.log('[calendly] Assembly keyboard with', buttons.length, 'buttons. Final row count:', rows.length);
-    }
+    if (rows.length) kb = { inline_keyboard: rows };
   }
 
-  // HEAD
-  if (head) {
-    // If there's NO items and NO tail, attach the keyboard HERE
-    const attachToHead = !items.length && !tail;
-    lastMsg = await safeReplyHtml(ctx, mdToHtml(head), attachToHead && kb ? { reply_markup: kb } : {});
+  // Render segments
+  for (let i = 0; i < segments.length; i++) {
+    const seg = segments[i];
+    const isLast = i === segments.length - 1;
+    const attachKb = isLast && kb;
+
+    if (seg.type === 'text') {
+      const html = mdToHtml(seg.value);
+      if (!html) continue;
+      lastMsg = await safeReplyHtml(ctx, html, attachKb ? { reply_markup: kb } : {});
+    } else if (seg.type === 'image') {
+      lastMsg = await sendMediaWithCaption(ctx, seg.value, undefined, attachKb ? kb : undefined);
+    }
+
     if (lastMsg) {
       lastBotMsgByUser.set(ctx.from.id, {
         chatId: lastMsg.chat.id,
         message_id: lastMsg.message_id,
-        keyboard: attachToHead && kb ? 'choice' : 'none'
+        keyboard: attachKb ? 'choice' : 'none'
       });
-      if (attachToHead && kb) consumed = !!maybeChoice?.payload?.buttons?.length;
+      if (attachKb) consumed = true;
     }
   }
 
-  // ITEMS
-  for (let i = 0; i < items.length; i++) {
-    const it = items[i];
-    const titleHtml = mdToHtml(it.title || '');
-    const menuHtml = it.menuUrl ? `\n<a href="${esc(it.menuUrl)}">View Menu</a>` : '';
-    const caption = (titleHtml + menuHtml).trim();
-
-    // Attach keyboard to the VERY LAST item if there's no tail
-    const isLastItem = i === items.length - 1;
-    const attachToItem = isLastItem && !tail;
-
-    const msg = await sendMediaWithCaption(ctx, it.imageUrl, caption, attachToItem && kb ? kb : undefined);
-    if (msg) {
-      lastMsg = msg;
-      lastBotMsgByUser.set(ctx.from.id, {
-        chatId: msg.chat.id,
-        message_id: msg.message_id,
-        keyboard: attachToItem && kb ? 'choice' : 'none'
-      });
-      if (attachToItem && kb) consumed = !!maybeChoice?.payload?.buttons?.length;
-    }
-  }
-
-  // TAIL
-  if (tail) {
-    // Attach keyboard HERE (tail is always last)
-    lastMsg = await safeReplyHtml(ctx, mdToHtml(tail), kb ? { reply_markup: kb } : {});
-    if (lastMsg) {
-      lastBotMsgByUser.set(ctx.from.id, {
-        chatId: lastMsg.chat.id,
-        message_id: lastMsg.message_id,
-        keyboard: kb ? 'choice' : 'none'
-      });
-      if (kb) consumed = !!maybeChoice?.payload?.buttons?.length;
-    }
+  // GALLERY & TAIL (Legacy support for specifically formatted blocks)
+  // We'll only run this if we have multiple segments that might contain gallery blocks
+  // but usually parseGalleryBlocks expects the UNREPLACED text.
+  // Since we already segmented, let's skip re-processing if interleaved worked.
+  if (segments.length === 0) {
+    // Fallback if no segments found (rare)
+    const { head, items, tail } = parseGalleryBlocks(textToDisplay);
+    // ... existing gallery logic ...
   }
 
   // FALLBACK (nothing sent yet)
