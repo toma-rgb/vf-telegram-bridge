@@ -448,13 +448,9 @@ async function completionSendOrUpdate(ctx, userId, fullText, { force = false } =
 
     if (seg.type === 'image') {
       if (!s.sentImages.has(seg.value)) {
-        // If we have an active text bubble, finalize it with the EXACT text that preceded this image
+        // If we have an active text bubble, finalize it BEFORE sending the photo
         if (s.msg) {
-          // We need to find the text segment immediately before this image
-          const prevTextSeg = segments[i - 1];
-          const finalHtml = prevTextSeg && prevTextSeg.type === 'text' ? mdToHtml(prevTextSeg.value.trim()) : s.lastHtml;
-
-          await safeEditHtml(ctx, s.msg.chat.id, s.msg.message_id, finalHtml);
+          await safeEditHtml(ctx, s.msg.chat.id, s.msg.message_id, s.lastHtml);
           s.msg = null;
           s.lastHtml = '';
         }
@@ -467,15 +463,31 @@ async function completionSendOrUpdate(ctx, userId, fullText, { force = false } =
       continue;
     }
 
-    if (seg.type === 'text' && isLast) {
+    if (seg.type === 'text') {
       const html = mdToHtml(seg.value.trim());
       if (!html) continue;
 
       const now = Date.now();
       const MIN_EDIT_MS = 150;
 
+      // If NOT the last segment, it's followed by an image. Send it immediately.
+      if (!isLast) {
+        if (!s.msg) {
+          const msg = await safeReplyHtml(ctx, html);
+          if (msg) {
+            lastBotMsgByUser.set(userId, { chatId: msg.chat.id, message_id: msg.message_id, keyboard: 'none' });
+          }
+        } else {
+          await safeEditHtml(ctx, s.msg.chat.id, s.msg.message_id, html);
+          s.msg = null;
+          s.lastHtml = '';
+        }
+        continue;
+      }
+
+      // HANDLE LAST SEGMENT (streaming)
       if (!s.msg) {
-        if (html.length < 5) { // Lower threshold 
+        if (html.length < 5) {
           completionStateByUser.set(userId, s);
           return;
         }
@@ -1232,24 +1244,51 @@ async function renderTextChoiceGalleryAndButtonsLast(ctx, raw, maybeChoice) {
   if (segments.length > 0) {
     for (let i = 0; i < segments.length; i++) {
       const seg = segments[i];
-      const isLast = i === segments.length - 1;
-      const attachKb = isLast && kb;
 
       if (seg.type === 'text') {
         const html = mdToHtml(seg.value);
         if (!html) continue;
+        const isLast = i === segments.length - 1;
+        const attachKb = isLast && kb;
         lastMsg = await safeReplyHtml(ctx, html, attachKb ? { reply_markup: kb } : {});
+        if (lastMsg) {
+          lastBotMsgByUser.set(ctx.from.id, {
+            chatId: lastMsg.chat.id,
+            message_id: lastMsg.message_id,
+            keyboard: attachKb ? 'choice' : 'none'
+          });
+          if (attachKb) consumed = true;
+        }
       } else if (seg.type === 'image') {
-        lastMsg = await sendMediaWithCaption(ctx, seg.value, undefined, attachKb ? kb : undefined);
-      }
+        // Group consecutive images
+        const batch = [seg.value];
+        while (i + 1 < segments.length && segments[i + 1].type === 'image') {
+          batch.push(segments[++i].value);
+        }
 
-      if (lastMsg) {
-        lastBotMsgByUser.set(ctx.from.id, {
-          chatId: lastMsg.chat.id,
-          message_id: lastMsg.message_id,
-          keyboard: attachKb ? 'choice' : 'none'
-        });
-        if (attachKb) consumed = true;
+        const isLast = i === segments.length - 1;
+        const attachKb = isLast && kb;
+
+        if (batch.length === 1) {
+          lastMsg = await sendMediaWithCaption(ctx, batch[0], undefined, attachKb ? kb : undefined);
+        } else {
+          const mediaGroup = batch.slice(0, 10).map(url => ({ type: 'photo', media: url }));
+          const groupMsgs = await ctx.replyWithMediaGroup(mediaGroup);
+          lastMsg = groupMsgs[groupMsgs.length - 1];
+          // If kb needs to be attached to a group, send a follow-up
+          if (attachKb) {
+            lastMsg = await ctx.reply('Choose an option:', { reply_markup: kb });
+          }
+        }
+
+        if (lastMsg) {
+          lastBotMsgByUser.set(ctx.from.id, {
+            chatId: lastMsg.chat.id,
+            message_id: lastMsg.message_id,
+            keyboard: attachKb ? 'choice' : 'none'
+          });
+          if (attachKb) consumed = true;
+        }
       }
     }
   } else if (textToDisplay.trim()) {
