@@ -315,9 +315,9 @@ function mdToHtml(input) {
 
   // STRIP IMAGES (full or partial) - prevent them from appearing in text bubbles
   // 1. Full/Partial Markdown images: ![...] ( http... )
-  raw = raw.replace(/!\[[\s\S]*?\]\s*\(\s*https?:\/\/[^\s)]*\)?/gi, '');
-  // 2. Full/Partial Photo labels: Photo: http...
-  raw = raw.replace(/Photo:\s*https?:\/\/[^\s]*/gi, '');
+  raw = raw.replace(/!\[[^\]]*?\]\s*\(\s*https?:\/\/[^\s)]*\)?/gi, '');
+  // 2. Full/Partial Photo labels (start with space/newline/word boundary)
+  raw = raw.replace(/(^|[\s\n])Photo:\s*https?:\/\/[^\s]*/gi, '$1');
 
   let s = esc(raw);
 
@@ -554,7 +554,7 @@ async function completionFlush(ctx, userId) {
 }
 
 // Real-time handler: ONLY completion traces (avoid duplicate text messages)
-async function handleTraceRealtime(ctx, trace) {
+async function handleTraceRealtime(ctx, trace, { skipRendering = false } = {}) {
   if (!trace || trace.type !== 'completion') return;
   if (!VF_COMPLETION_TO_TELEGRAM) return;
 
@@ -592,7 +592,7 @@ async function handleTraceRealtime(ctx, trace) {
 
     completionStateByUser.set(userId, s);
 
-    // if (DEBUG_STREAM) console.log('[completion] content len=', s.accumulated.length); // ← Comment this out
+    if (skipRendering) return;
     await completionSendOrUpdate(ctx, userId, s.accumulated);
     return;
   }
@@ -1558,11 +1558,12 @@ async function streamVoiceflowInteraction(ctx, userId, action) {
         }
 
         realtimeChain = realtimeChain.then(async () => {
-          // SKIP LOGIC: If this is a completion content trace, but a newer one has arrived, skip this processing.
-          if (trace.type === 'completion' && trace.payload?.state === 'content' && currentIdx < latestContentIdx) {
-            return;
-          }
-          await handleTraceRealtime(ctx, trace);
+          // Optimization: Skip rendering if a newer content trace has arrived.
+          // handleTraceRealtime will still update the accumulated buffer.
+          const isContent = trace.type === 'completion' && trace.payload?.state === 'content';
+          const skipRendering = isContent && currentIdx < latestContentIdx;
+
+          await handleTraceRealtime(ctx, trace, { skipRendering });
         }).catch(() => { });
         return;
       }
