@@ -416,6 +416,7 @@ function defaultCompletionState() {
     hasContent: false,
     endedAt: 0,
     sentImages: new Set(), // Track images sent during this streaming session
+    finalizedIdx: -1,     // Track segments (text or image) already permanently handled
   };
 }
 
@@ -443,6 +444,8 @@ async function completionSendOrUpdate(ctx, userId, fullText, { force = false } =
   const segments = segmentContent(s.accumulated);
 
   for (let i = 0; i < segments.length; i++) {
+    if (i <= s.finalizedIdx) continue;
+
     const seg = segments[i];
     const isLast = i === segments.length - 1;
 
@@ -456,9 +459,15 @@ async function completionSendOrUpdate(ctx, userId, fullText, { force = false } =
         }
 
         s.sentImages.add(seg.value);
+        s.finalizedIdx = i; // Mark image as finalized too
+        completionStateByUser.set(userId, s);
         try {
           await ctx.replyWithPhoto(seg.value);
         } catch (err) { }
+      } else {
+        // Even if we already sent the image, mark the segment as finalized if we are past it
+        s.finalizedIdx = i;
+        completionStateByUser.set(userId, s);
       }
       continue;
     }
@@ -479,9 +488,12 @@ async function completionSendOrUpdate(ctx, userId, fullText, { force = false } =
           }
         } else {
           await safeEditHtml(ctx, s.msg.chat.id, s.msg.message_id, html);
-          s.msg = null;
-          s.lastHtml = '';
         }
+
+        s.msg = null;
+        s.lastHtml = '';
+        s.finalizedIdx = i; // MARK AS PERMANENT
+        completionStateByUser.set(userId, s);
         continue;
       }
 
@@ -589,6 +601,8 @@ async function handleTraceRealtime(ctx, trace, { skipRendering = false } = {}) {
     s.active = true;
     s.hasContent = false;
     s.endedAt = 0;
+    s.sentImages = new Set();
+    s.finalizedIdx = -1;
     completionStateByUser.set(userId, s);
 
     if (DEBUG_STREAM) console.log('[completion] start');
@@ -1340,8 +1354,8 @@ async function sendVFToTelegram(ctx, vfResp) {
       const isAi = t?.payload?.ai === true;
 
       // If we streamed this AI response via completion events, don't send it again
-      if (isAi && VF_COMPLETION_TO_TELEGRAM && hasRecentCompletionMsg) {
-        // But keep lastMsgOverall aligned to the streaming message
+      const isHandledByStreaming = isAi && VF_COMPLETION_TO_TELEGRAM && hasRecentCompletionMsg;
+      if (isHandledByStreaming) {
         const lb = lastBotMsgByUser.get(userId);
         if (lb) lastMsgOverall = lb;
         continue;
