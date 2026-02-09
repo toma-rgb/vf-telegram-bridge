@@ -1148,6 +1148,10 @@ async function renderTextChoiceGalleryAndButtonsLast(ctx, raw, maybeChoice) {
   // --- IMAGE EXTRACTION LOGIC ---
   const imageSources = [];
 
+  if (DEBUG_BUTTONS) {
+    console.log('[image-extraction] RAW TEXT:', JSON.stringify(textToDisplay));
+  }
+
   // 1. "Photo: URL" pattern
   const photoLabelRe = /Photo:\s*(https?:\/\/[^\s]+)/gi;
   textToDisplay = textToDisplay.replace(photoLabelRe, (match, url) => {
