@@ -313,6 +313,12 @@ function mdToHtml(input) {
   raw = compactLabelUrlLines(raw);
   raw = linkifyBareUrlsToMarkdown(raw);
 
+  // STRIP IMAGES (full or partial) - prevent them from appearing in text bubbles
+  // 1. Full/Partial Markdown images: ![...] ( http... )
+  raw = raw.replace(/!\[[\s\S]*?\]\s*\(\s*https?:\/\/[^\s)]*\)?/gi, '');
+  // 2. Full/Partial Photo labels: Photo: http...
+  raw = raw.replace(/Photo:\s*https?:\/\/[^\s]*/gi, '');
+
   let s = esc(raw);
 
   // [text](url) but NOT images ![alt](url)
@@ -436,36 +442,32 @@ async function completionSendOrUpdate(ctx, userId, fullText, { force = false } =
 
   const segments = segmentContent(s.accumulated);
 
-  // Find the LAST segment we are currently working on
-  // Any images BEFORE the last segment should have been "sent"
-  // The last segment, if text, is what we edit. 
-  // If an image just appeared as the last segment, we send it and start a new text bubble.
-
   for (let i = 0; i < segments.length; i++) {
     const seg = segments[i];
     const isLast = i === segments.length - 1;
 
     if (seg.type === 'image') {
       if (!s.sentImages.has(seg.value)) {
-        // Before sending the image, if we have an active text bubble, finalize it
+        // If we have an active text bubble, finalize it with the EXACT text that preceded this image
         if (s.msg) {
-          await completionFlush(ctx, userId); // This clears s.msg but keeps accumulated
+          // We need to find the text segment immediately before this image
+          const prevTextSeg = segments[i - 1];
+          const finalHtml = prevTextSeg && prevTextSeg.type === 'text' ? mdToHtml(prevTextSeg.value.trim()) : s.lastHtml;
+
+          await safeEditHtml(ctx, s.msg.chat.id, s.msg.message_id, finalHtml);
           s.msg = null;
+          s.lastHtml = '';
         }
 
         s.sentImages.add(seg.value);
         try {
           await ctx.replyWithPhoto(seg.value);
-          if (DEBUG_MEDIA) console.log('[completion-stream] Sent interleaved photo:', seg.value);
-        } catch (err) {
-          if (DEBUG_MEDIA) console.log('[completion-stream] Photo failed:', err.message);
-        }
+        } catch (err) { }
       }
       continue;
     }
 
     if (seg.type === 'text' && isLast) {
-      // This is the current text bubble we are editing
       const html = mdToHtml(seg.value.trim());
       if (!html) continue;
 
@@ -473,12 +475,12 @@ async function completionSendOrUpdate(ctx, userId, fullText, { force = false } =
       const MIN_EDIT_MS = 150;
 
       if (!s.msg) {
-        if (html.length < 10) {
+        if (html.length < 5) { // Lower threshold 
           completionStateByUser.set(userId, s);
           return;
         }
         const plainText = seg.value.trim();
-        if (!hasCompleteSentence(plainText) && plainText.length < 200) {
+        if (!hasCompleteSentence(plainText) && plainText.length < 150) {
           completionStateByUser.set(userId, s);
           return;
         }
@@ -1227,41 +1229,31 @@ async function renderTextChoiceGalleryAndButtonsLast(ctx, raw, maybeChoice) {
   }
 
   // Render segments
-  for (let i = 0; i < segments.length; i++) {
-    const seg = segments[i];
-    const isLast = i === segments.length - 1;
-    const attachKb = isLast && kb;
+  if (segments.length > 0) {
+    for (let i = 0; i < segments.length; i++) {
+      const seg = segments[i];
+      const isLast = i === segments.length - 1;
+      const attachKb = isLast && kb;
 
-    if (seg.type === 'text') {
-      const html = mdToHtml(seg.value);
-      if (!html) continue;
-      lastMsg = await safeReplyHtml(ctx, html, attachKb ? { reply_markup: kb } : {});
-    } else if (seg.type === 'image') {
-      lastMsg = await sendMediaWithCaption(ctx, seg.value, undefined, attachKb ? kb : undefined);
+      if (seg.type === 'text') {
+        const html = mdToHtml(seg.value);
+        if (!html) continue;
+        lastMsg = await safeReplyHtml(ctx, html, attachKb ? { reply_markup: kb } : {});
+      } else if (seg.type === 'image') {
+        lastMsg = await sendMediaWithCaption(ctx, seg.value, undefined, attachKb ? kb : undefined);
+      }
+
+      if (lastMsg) {
+        lastBotMsgByUser.set(ctx.from.id, {
+          chatId: lastMsg.chat.id,
+          message_id: lastMsg.message_id,
+          keyboard: attachKb ? 'choice' : 'none'
+        });
+        if (attachKb) consumed = true;
+      }
     }
-
-    if (lastMsg) {
-      lastBotMsgByUser.set(ctx.from.id, {
-        chatId: lastMsg.chat.id,
-        message_id: lastMsg.message_id,
-        keyboard: attachKb ? 'choice' : 'none'
-      });
-      if (attachKb) consumed = true;
-    }
-  }
-
-  // GALLERY & TAIL (Legacy support for specifically formatted blocks)
-  // We'll only run this if we have multiple segments that might contain gallery blocks
-  // but usually parseGalleryBlocks expects the UNREPLACED text.
-  // Since we already segmented, let's skip re-processing if interleaved worked.
-  if (segments.length === 0) {
-    // Fallback if no segments found (rare)
-    const { head, items, tail } = parseGalleryBlocks(textToDisplay);
-    // ... existing gallery logic ...
-  }
-
-  // FALLBACK (nothing sent yet)
-  if (!lastMsg && textToDisplay.trim()) {
+  } else if (textToDisplay.trim()) {
+    // Fallback for non-segmented text
     lastMsg = await safeReplyHtml(ctx, mdToHtml(textToDisplay), kb ? { reply_markup: kb } : {});
     if (lastMsg) {
       lastBotMsgByUser.set(ctx.from.id, {
