@@ -1160,7 +1160,8 @@ async function renderTextChoiceGalleryAndButtonsLast(ctx, raw, maybeChoice) {
   });
 
   // 2. Markdown image pattern ![alt](url)
-  const mdImageRe = /!\[.*?\]\((https?:\/\/[^\s)]+)\)/gi;
+  // Updated to handle potential newlines in alt text or around the link
+  const mdImageRe = /!\[[\s\S]*?\]\((https?:\/\/[^\s)]+)\)/gi;
   textToDisplay = textToDisplay.replace(mdImageRe, (match, url) => {
     imageSources.push(url.trim());
     return ''; // Remove from text
