@@ -214,6 +214,35 @@ function stripTags(s) {
   return String(s || '').replace(/<[^>]*>/g, '');
 }
 
+/**
+ * Extracts image URLs from text and returns cleaned text + array of URLs.
+ */
+function extractImages(text) {
+  const sources = [];
+  if (!text) return { text: '', sources };
+
+  let cleaned = text;
+
+  // 1. "Photo: URL" pattern
+  const photoLabelRe = /Photo:\s*(https?:\/\/[^\s]+)/gi;
+  cleaned = cleaned.replace(photoLabelRe, (match, url) => {
+    sources.push(url.trim());
+    return '';
+  });
+
+  // 2. Markdown image pattern ![alt](url)
+  const mdImageRe = /!\[[\s\S]*?\]\s*\(\s*(https?:\/\/[^\s)]+)\s*\)/gi;
+  cleaned = cleaned.replace(mdImageRe, (match, url) => {
+    sources.push(url.trim());
+    return '';
+  });
+
+  // Clean up excessive newlines
+  cleaned = cleaned.replace(/\n{3,}/g, '\n\n').trim();
+
+  return { text: cleaned, sources };
+}
+
 function unescapeVfHtmlArtifacts(raw) {
   return String(raw || '').replace(/\\"/g, '"').replace(/\\n/g, '\n');
 }
@@ -365,6 +394,7 @@ function defaultCompletionState() {
     active: false,
     hasContent: false,
     endedAt: 0,
+    sentImages: new Set(), // Track images sent during this streaming session
   };
 }
 
@@ -389,7 +419,23 @@ async function completionSendOrUpdate(ctx, userId, fullText, { force = false } =
   const s = completionStateByUser.get(userId) || defaultCompletionState();
   s.accumulated = String(fullText || '');
 
-  const html = mdToHtml(String(s.accumulated || '').trim());
+  // Extract images from accumulated text
+  const { text: cleanedText, sources } = extractImages(s.accumulated);
+
+  // Send any NEW images found
+  for (const url of sources) {
+    if (!s.sentImages.has(url)) {
+      s.sentImages.add(url);
+      try {
+        await ctx.replyWithPhoto(url);
+        if (DEBUG_MEDIA) console.log('[completion-images] Sent streamed photo:', url);
+      } catch (err) {
+        if (DEBUG_MEDIA) console.log('[completion-images] Failed to send streamed photo:', err.message);
+      }
+    }
+  }
+
+  const html = mdToHtml(cleanedText.trim());
   if (!html) {
     completionStateByUser.set(userId, s);
     return;
@@ -407,7 +453,7 @@ async function completionSendOrUpdate(ctx, userId, fullText, { force = false } =
     }
 
     // ADD THIS LOGIC: Wait for complete sentence or enough content
-    const plainText = s.accumulated.trim();
+    const plainText = cleanedText.trim();
     if (!hasCompleteSentence(plainText) && plainText.length < 200) {
       completionStateByUser.set(userId, s);
       return; // Keep accumulating until we have a complete sentence or 200 chars
@@ -1145,53 +1191,23 @@ async function renderTextChoiceGalleryAndButtonsLast(ctx, raw, maybeChoice) {
     }
   }
 
-  // --- IMAGE EXTRACTION LOGIC ---
-  const imageSources = [];
-
-  // ALWAYS log for debugging (remove after fix confirmed)
-  console.log('[image-extraction] Processing text, length:', textToDisplay.length);
-
-  // 1. "Photo: URL" pattern
-  const photoLabelRe = /Photo:\s*(https?:\/\/[^\s]+)/gi;
-  textToDisplay = textToDisplay.replace(photoLabelRe, (match, url) => {
-    imageSources.push(url.trim());
-    return ''; // Remove from text
-  });
-
-  // 2. Markdown image pattern ![alt](url)
-  // Updated to handle potential newlines, spaces, or slightly malformed markdown
-  const mdImageRe = /!\[[\s\S]*?\]\s*\(\s*(https?:\/\/[^\s)]+)\s*\)/gi;
-  textToDisplay = textToDisplay.replace(mdImageRe, (match, url) => {
-    imageSources.push(url.trim());
-    return ''; // Remove from text
-  });
-
-  // Clean up excessive newlines left behind
-  textToDisplay = textToDisplay.replace(/\n{3,}/g, '\n\n').trim();
-
-  console.log('[image-extraction] Found', imageSources.length, 'images:', imageSources);
+  // --- IMAGE EXTRACTION ---
+  const { text: cleanedText, sources: imageSources } = extractImages(textToDisplay);
+  textToDisplay = cleanedText;
 
   // SEND IMAGES BEFORE TEXT
   if (imageSources.length > 0) {
-    console.log('[image-extraction] Sending', imageSources.length, 'images...');
+    if (DEBUG_MEDIA) console.log('[image-extraction] Sending', imageSources.length, 'images...');
     try {
       if (imageSources.length === 1) {
         await ctx.replyWithPhoto(imageSources[0]);
-        console.log('[image-extraction] Single photo sent successfully');
       } else {
-        // Send as album (up to 10 items per album)
-        const mediaGroup = imageSources.slice(0, 10).map(url => ({
-          type: 'photo',
-          media: url
-        }));
+        const mediaGroup = imageSources.slice(0, 10).map(url => ({ type: 'photo', media: url }));
         await ctx.replyWithMediaGroup(mediaGroup);
-        console.log('[image-extraction] Media group sent successfully');
       }
     } catch (err) {
       console.error('[image-extraction] Failed to send images:', err.message);
     }
-  } else {
-    console.log('[image-extraction] No images found in text');
   }
 
   const { head, items, tail } = parseGalleryBlocks(textToDisplay);
