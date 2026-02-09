@@ -1144,6 +1144,47 @@ async function renderTextChoiceGalleryAndButtonsLast(ctx, raw, maybeChoice) {
     }
   }
 
+  // --- IMAGE EXTRACTION LOGIC ---
+  const imageSources = [];
+
+  // 1. "Photo: URL" pattern
+  const photoLabelRe = /Photo:\s*(https?:\/\/[^\s]+)/gi;
+  textToDisplay = textToDisplay.replace(photoLabelRe, (match, url) => {
+    imageSources.push(url.trim());
+    return ''; // Remove from text
+  });
+
+  // 2. Markdown image pattern ![alt](url)
+  const mdImageRe = /!\[.*?\]\((https?:\/\/[^\s)]+)\)/gi;
+  textToDisplay = textToDisplay.replace(mdImageRe, (match, url) => {
+    imageSources.push(url.trim());
+    return ''; // Remove from text
+  });
+
+  // Clean up excessive newlines left behind
+  textToDisplay = textToDisplay.replace(/\n{3,}/g, '\n\n').trim();
+
+  // SEND IMAGES BEFORE TEXT
+  if (imageSources.length > 0) {
+    try {
+      if (imageSources.length === 1) {
+        await ctx.replyWithPhoto(imageSources[0]);
+      } else {
+        // Send as album (up to 10 items per album)
+        const mediaGroup = imageSources.slice(0, 10).map(url => ({
+          type: 'photo',
+          media: url
+        }));
+        await ctx.replyWithMediaGroup(mediaGroup);
+      }
+    } catch (err) {
+      console.error('[image-extraction] Failed to send images:', err.message);
+      // Fallback: append URLs back to text if sending failed? 
+      // For now, we assume failure is rare or acceptable to lose the image rather than duplicate.
+      // Or we could append them back: textToDisplay += '\n\n' + imageSources.join('\n');
+    }
+  }
+
   const { head, items, tail } = parseGalleryBlocks(textToDisplay);
 
   let consumed = false;
