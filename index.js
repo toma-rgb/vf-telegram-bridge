@@ -1148,9 +1148,8 @@ async function renderTextChoiceGalleryAndButtonsLast(ctx, raw, maybeChoice) {
   // --- IMAGE EXTRACTION LOGIC ---
   const imageSources = [];
 
-  if (DEBUG_BUTTONS) {
-    console.log('[image-extraction] RAW TEXT:', JSON.stringify(textToDisplay));
-  }
+  // ALWAYS log for debugging (remove after fix confirmed)
+  console.log('[image-extraction] Processing text, length:', textToDisplay.length);
 
   // 1. "Photo: URL" pattern
   const photoLabelRe = /Photo:\s*(https?:\/\/[^\s]+)/gi;
@@ -1170,11 +1169,15 @@ async function renderTextChoiceGalleryAndButtonsLast(ctx, raw, maybeChoice) {
   // Clean up excessive newlines left behind
   textToDisplay = textToDisplay.replace(/\n{3,}/g, '\n\n').trim();
 
+  console.log('[image-extraction] Found', imageSources.length, 'images:', imageSources);
+
   // SEND IMAGES BEFORE TEXT
   if (imageSources.length > 0) {
+    console.log('[image-extraction] Sending', imageSources.length, 'images...');
     try {
       if (imageSources.length === 1) {
         await ctx.replyWithPhoto(imageSources[0]);
+        console.log('[image-extraction] Single photo sent successfully');
       } else {
         // Send as album (up to 10 items per album)
         const mediaGroup = imageSources.slice(0, 10).map(url => ({
@@ -1182,13 +1185,13 @@ async function renderTextChoiceGalleryAndButtonsLast(ctx, raw, maybeChoice) {
           media: url
         }));
         await ctx.replyWithMediaGroup(mediaGroup);
+        console.log('[image-extraction] Media group sent successfully');
       }
     } catch (err) {
       console.error('[image-extraction] Failed to send images:', err.message);
-      // Fallback: append URLs back to text if sending failed? 
-      // For now, we assume failure is rare or acceptable to lose the image rather than duplicate.
-      // Or we could append them back: textToDisplay += '\n\n' + imageSources.join('\n');
     }
+  } else {
+    console.log('[image-extraction] No images found in text');
   }
 
   const { head, items, tail } = parseGalleryBlocks(textToDisplay);
