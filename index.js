@@ -54,8 +54,8 @@ if (!TELEGRAM_BOT_TOKEN || !VF_API_KEY || !VF_PROJECT_ID) {
   process.exit(1);
 }
 
-// Tripled handler timeout (helps on slow VF turns)
-const bot = new Telegraf(TELEGRAM_BOT_TOKEN, { handlerTimeout: 45_000 });
+// Increased handler timeout (helps on slow VF turns and media uploads)
+const bot = new Telegraf(TELEGRAM_BOT_TOKEN, { handlerTimeout: 120_000 });
 const openai = OPENAI_API_KEY ? new OpenAI({ apiKey: OPENAI_API_KEY }) : null;
 console.log(`[stt] ${openai ? '✅ OpenAI STT initialized' : '⚠️ OpenAI STT NOT initialized (check OPENAI_API_KEY env)'}`);
 console.log(`[system] Bot starting (PID: ${process.pid}) at ${new Date().toISOString()}`);
@@ -73,7 +73,7 @@ console.log('🚀 BRIDGE VERSION: IMAGE UPDATE ACTIVE (Commit 8b)');
 const httpAgent = new http.Agent({ keepAlive: true, keepAliveMsecs: 10_000, maxSockets: 50 });
 const httpsAgent = new https.Agent({ keepAlive: true, keepAliveMsecs: 10_000, maxSockets: 50 });
 const api = axios.create({
-  timeout: 45_000,
+  timeout: 110_000, // Slightly less than bot timeout
   httpAgent,
   httpsAgent,
   validateStatus: (s) => s >= 200 && s < 300,
@@ -1532,8 +1532,10 @@ async function streamVoiceflowInteraction(ctx, userId, action) {
   let finished = false;
 
   // Force realtime completion processing to be sequential,
-  // and WAIT for it before returning (prevents races with buttons)
+  // and WAIT for it before returning (prevents races with buttons).
+  // OPTIMIZATION: Use a counter to skip redundant intermediate text edits.
   let realtimeChain = Promise.resolve();
+  let latestContentIdx = -1;
 
   const finish = async (resolve) => {
     if (finished) return;
@@ -1547,8 +1549,21 @@ async function streamVoiceflowInteraction(ctx, userId, action) {
   return await new Promise((resolve, reject) => {
     parseSseStream(res.data, ({ event, data }) => {
       if (event === 'trace' && data && typeof data === 'object') {
-        traces.push(data);
-        realtimeChain = realtimeChain.then(() => handleTraceRealtime(ctx, data)).catch(() => { });
+        const trace = data;
+        traces.push(trace);
+
+        const currentIdx = traces.length - 1;
+        if (trace.type === 'completion' && trace.payload?.state === 'content') {
+          latestContentIdx = currentIdx;
+        }
+
+        realtimeChain = realtimeChain.then(async () => {
+          // SKIP LOGIC: If this is a completion content trace, but a newer one has arrived, skip this processing.
+          if (trace.type === 'completion' && trace.payload?.state === 'content' && currentIdx < latestContentIdx) {
+            return;
+          }
+          await handleTraceRealtime(ctx, trace);
+        }).catch(() => { });
         return;
       }
       if (event === 'end' || event === 'end-of-stream') {
