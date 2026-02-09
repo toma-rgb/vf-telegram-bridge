@@ -65,6 +65,7 @@ console.log(
     : '🚀 VF Published (no version header)') +
   ` | Streaming: ON | completion_events=${VF_COMPLETION_EVENTS} | completion_to_telegram=${VF_COMPLETION_TO_TELEGRAM} | Media force upload: ${MEDIA_FORCE_UPLOAD}`
 );
+console.log('🚀 BRIDGE VERSION: IMAGE UPDATE ACTIVE (Commit 8b)');
 
 // =====================
 // HTTP (keep-alive)
