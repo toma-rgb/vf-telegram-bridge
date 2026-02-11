@@ -68,7 +68,7 @@ console.log(
 console.log(`[system] CALENDLY_MINI_APP_URL: ${CALENDLY_MINI_APP_URL ? '✅ SET' : '⚠️ MISSING'}`);
 console.log(`[system] MARKETPLACE_MINI_APP_URL: ${MARKETPLACE_MINI_APP_URL ? '✅ SET' : '⚠️ MISSING'}`);
 console.log(`[system] RESERVATIONS_MINI_APP_URL: ${RESERVATIONS_MINI_APP_URL ? '✅ SET' : '⚠️ MISSING'}`);
-console.log('🚀 BRIDGE VERSION: ROBUST MULTI-TRACE BUTTONS (Commit 15b)');
+console.log('🚀 BRIDGE VERSION: ROBUST MULTI-TRACE BUTTONS (Commit 16b)');
 
 // =====================
 // HTTP (keep-alive)
@@ -1226,7 +1226,7 @@ function getProcessedTextForButtons(raw, calendlyUrl) {
     text = text.replace(calendlyUrl, '').replace(/\[\]\(\)/g, '').trim();
   }
 
-  const PROMPT = 'Please use the button below to complete your booking:';
+  const PROMPT = 'Use the "Book Now" button to complete the booking.';
   if (!text && calendlyUrl) {
     text = PROMPT;
   }
