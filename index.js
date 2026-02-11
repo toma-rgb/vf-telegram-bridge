@@ -68,7 +68,7 @@ console.log(
 console.log(`[system] CALENDLY_MINI_APP_URL: ${CALENDLY_MINI_APP_URL ? '✅ SET' : '⚠️ MISSING'}`);
 console.log(`[system] MARKETPLACE_MINI_APP_URL: ${MARKETPLACE_MINI_APP_URL ? '✅ SET' : '⚠️ MISSING'}`);
 console.log(`[system] RESERVATIONS_MINI_APP_URL: ${RESERVATIONS_MINI_APP_URL ? '✅ SET' : '⚠️ MISSING'}`);
-console.log('🚀 BRIDGE VERSION: FORCED MINI-APP FALLBACK (Commit 26b)');
+console.log('🚀 BRIDGE VERSION: RESTORED SYNTHETIC BUTTONS (Commit 27b)');
 
 // =====================
 // HTTP (keep-alive)
@@ -300,10 +300,17 @@ function linkifyBareUrlsToMarkdown(raw) {
 
 function extractCalendlyUrl(text) {
   if (!text) return null;
-  // Look for calendly.com/... - handle www., and exclude trailing parentheses, quotes, or whitespace
+  // 1. Look for direct URL
   const re = /https?:\/\/(www\.)?calendly\.com\/[^\s"'>\)]+/i;
-  const match = text.match(re);
-  return match ? match[0].trim() : null;
+  let match = text.match(re);
+  if (match) return match[0].trim();
+
+  // 2. Look for iframe src
+  const iframeSrcRe = /<iframe[^>]*src=["'](https?:\/\/calendly\.com\/[^"']+)["'][^>]*>/i;
+  match = text.match(iframeSrcRe);
+  if (match) return match[1].trim();
+
+  return null;
 }
 
 // Markdown → Telegram HTML (bold/italic + hyperlinks ONLY)
@@ -1200,15 +1207,28 @@ async function ensureKeyboardOnMessage(ctx, msg, inlineKeyboard) {
 function getSyntheticButtons(raw, sourceName = 'unspecified') {
   if (!raw) return [];
   const buttons = [];
+  const low = raw.toLowerCase();
 
-  // Calendly
-  const calendlyUrl = extractCalendlyUrl(raw);
+  // 1. Calendly (explicit link or prompt keywords)
+  let calendlyUrl = extractCalendlyUrl(raw);
+
+  // Keywords that indicate a booking prompt where a button should appear
+  const bookingPromptKeywords = ['booked for', 'preferred time', 'booking calendar', 'ready below'];
+  const isBookingPrompt = bookingPromptKeywords.some(k => low.includes(k));
+
+  if (isBookingPrompt && !calendlyUrl) {
+    if (DEBUG_BUTTONS) console.log(`[buttons][${sourceName}] Detected booking prompt keywords. Using fallback Calendly URL.`);
+    // Fallback to a placeholder or global link if we know it's a booking prompt but link is missing
+    // We'll use the default test link if no better info exists
+    calendlyUrl = 'https://calendly.com/goldenhorizon-test/new-meeting';
+  }
+
   if (calendlyUrl && CALENDLY_MINI_APP_URL) {
-    if (DEBUG_BUTTONS) console.log(`[buttons][${sourceName}] Found Calendly link:`, calendlyUrl);
+    if (DEBUG_BUTTONS) console.log(`[buttons][${sourceName}] Found Calendly trigger (link or prompt).`);
     buttons.push({ name: '📅 Book Now', request: { url: calendlyUrl } });
   }
 
-  // Mini App link detection (Reservations & Marketplace)
+  // 2. Mini App link detection (Reservations & Marketplace)
   const miniConfigs = [
     { url: RESERVATIONS_MINI_APP_URL, label: '🍴 Book Dining', pattern: /reservations\.html/i },
     { url: MARKETPLACE_MINI_APP_URL, label: '🛍️ Open Marketplace', pattern: /marketplace\.html/i }
