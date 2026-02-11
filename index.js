@@ -68,7 +68,7 @@ console.log(
 console.log(`[system] CALENDLY_MINI_APP_URL: ${CALENDLY_MINI_APP_URL ? '✅ SET' : '⚠️ MISSING'}`);
 console.log(`[system] MARKETPLACE_MINI_APP_URL: ${MARKETPLACE_MINI_APP_URL ? '✅ SET' : '⚠️ MISSING'}`);
 console.log(`[system] RESERVATIONS_MINI_APP_URL: ${RESERVATIONS_MINI_APP_URL ? '✅ SET' : '⚠️ MISSING'}`);
-console.log('🚀 BRIDGE VERSION: FINAL ROBUST BUTTONS (Commit 23b)');
+console.log('🚀 BRIDGE VERSION: COMPREHENSIVE MINI-APP FIX (Commit 24b)');
 
 // =====================
 // HTTP (keep-alive)
@@ -1395,26 +1395,52 @@ async function sendVFToTelegram(ctx, vfResp) {
   const hasRecentCompletionMsg =
     !!comp?.msg && !!comp?.accumulated?.trim() && (comp.active || (comp.endedAt && Date.now() - comp.endedAt < 90_000));
 
-  // --- PRE-SCAN ALL TRACES FOR SYNTHETIC BUTTONS ---
+  // --- PRE-SCAN ALL TRACES FOR SYNTHETIC BUTTONS AND THE OVERALL CALENDLY URL ---
   const responseSyntheticButtons = [];
+  let overallCalendlyUrl = null;
+
   for (const t of traces) {
     if (t.type === 'text') {
       const raw = textOfTrace(t);
       const syn = getSyntheticButtons(raw, 'pre-scan-text');
-      for (const s of syn) if (!responseSyntheticButtons.some(b => b.name === s.name)) responseSyntheticButtons.push(s);
-    } else if (t.type === 'card' || t.type === 'cardV2') {
-      const raw = [t.payload?.title, t.payload?.description].filter(Boolean).join(' ');
-      const syn = getSyntheticButtons(raw, 'pre-scan-card');
-      for (const s of syn) if (!responseSyntheticButtons.some(b => b.name === s.name)) responseSyntheticButtons.push(s);
+      for (const s of syn) {
+        if (!responseSyntheticButtons.some(b => b.name === s.name)) responseSyntheticButtons.push(s);
+        if (s.name && s.name.includes('Book Now')) {
+          const url = extractUrlFromButton(s);
+          if (url) overallCalendlyUrl = url;
+        }
+      }
+    } else if (t.type === 'card' || t.type === 'cardV2' || t.type === 'choice' || t.type === 'carousel') {
+      const buttons = Array.isArray(t.payload?.buttons) ? t.payload.buttons :
+        Array.isArray(t.payload?.cards) ? t.payload.cards.flatMap(c => c.buttons || []) : [];
+
+      for (const b of buttons) {
+        const name = b.name || b.request?.payload?.label || '';
+        if (name.includes('Book Now')) {
+          const url = extractUrlFromButton(b);
+          if (url) overallCalendlyUrl = url;
+        }
+      }
+
+      if (t.type === 'card' || t.type === 'cardV2') {
+        const raw = [t.payload?.title, t.payload?.description].filter(Boolean).join(' ');
+        const syn = getSyntheticButtons(raw, 'pre-scan-card');
+        for (const s of syn) {
+          if (!responseSyntheticButtons.some(b => b.name === s.name)) responseSyntheticButtons.push(s);
+          if (s.name && s.name.includes('Book Now')) {
+            const url = extractUrlFromButton(s);
+            if (url) overallCalendlyUrl = url;
+          }
+        }
+      }
     }
   }
-  if (DEBUG_BUTTONS && responseSyntheticButtons.length) {
-    console.log('[sendVF] Collected synthetic buttons from response:', responseSyntheticButtons.map(b => b.name));
-  }
 
-  // Extract Calendly URL once for the entire response
-  const calendlyBtn = responseSyntheticButtons.find(b => b.name && b.name.includes('Book Now'));
-  const overallCalendlyUrl = calendlyBtn ? extractUrlFromButton(calendlyBtn) : null;
+  if (DEBUG_BUTTONS) {
+    if (overallCalendlyUrl) console.log(`[sendVF] Found overall Calendly URL: ${overallCalendlyUrl}`);
+    else console.log('[sendVF] No Calendly URL found in this response');
+    if (responseSyntheticButtons.length) console.log('[sendVF] Collected synthetic buttons:', responseSyntheticButtons.map(b => b.name));
+  }
 
   for (let i = 0; i < traces.length; i += 1) {
     const t = traces[i];
