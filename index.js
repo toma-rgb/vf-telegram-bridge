@@ -68,7 +68,7 @@ console.log(
 console.log(`[system] CALENDLY_MINI_APP_URL: ${CALENDLY_MINI_APP_URL ? '✅ SET' : '⚠️ MISSING'}`);
 console.log(`[system] MARKETPLACE_MINI_APP_URL: ${MARKETPLACE_MINI_APP_URL ? '✅ SET' : '⚠️ MISSING'}`);
 console.log(`[system] RESERVATIONS_MINI_APP_URL: ${RESERVATIONS_MINI_APP_URL ? '✅ SET' : '⚠️ MISSING'}`);
-console.log('🚀 BRIDGE VERSION: ACTIVITY BUTTON MINI-APPS (Commit 19b)');
+console.log('🚀 BRIDGE VERSION: COMPREHENSIVE ACTIVITY MINI-APPS (Commit 20b)');
 
 // =====================
 // HTTP (keep-alive)
@@ -1355,6 +1355,22 @@ async function renderTextChoiceGalleryAndButtonsLast(ctx, raw, maybeChoice, exte
   return { consumed, lastMsg };
 }
 
+/**
+ * Transforms "Book [Activity]" buttons into direct Calendly mini-app openers 
+ * if a Calendly URL is available in the response context.
+ */
+function applyCalendlyToButtons(buttons, calendlyUrl) {
+  if (!calendlyUrl || !Array.isArray(buttons)) return;
+  const activityPattern = /Book\s+(Go-Karts|Escape\s*Room|Laser\s*Tag|VR\s*Arcade)/i;
+  for (const b of buttons) {
+    if (activityPattern.test(b.name || '')) {
+      b.request = b.request || {};
+      b.request.url = calendlyUrl;
+      if (DEBUG_BUTTONS) console.log(`[buttons] Transformed "${b.name}" into direct mini-app opener`);
+    }
+  }
+}
+
 async function sendVFToTelegram(ctx, vfResp) {
   const userId = ctx.from.id;
   const traces = tracesOf(vfResp);
@@ -1381,6 +1397,11 @@ async function sendVFToTelegram(ctx, vfResp) {
   if (DEBUG_BUTTONS && responseSyntheticButtons.length) {
     console.log('[sendVF] Collected synthetic buttons from response:', responseSyntheticButtons.map(b => b.name));
   }
+
+  // Extract Calendly URL once for the entire response
+  const calendlyBtn = responseSyntheticButtons.find(b => b.name && b.name.includes('Book Now'));
+  const overallCalendlyUrl = calendlyBtn ? extractUrlFromButton(calendlyBtn) : null;
+
   for (let i = 0; i < traces.length; i += 1) {
     const t = traces[i];
     if (!t) continue;
@@ -1450,20 +1471,8 @@ async function sendVFToTelegram(ctx, vfResp) {
 
       const mergedButtons = [...buttons];
 
-      // TRANSFORM ACTIVITY BUTTONS: If we found a Calendly URL, inject it into matching Book [Activity] buttons
-      const calendlyBtn = syn.find(b => b.name && b.name.includes('Book Now'));
-      const calendlyUrl = calendlyBtn ? extractUrlFromButton(calendlyBtn) : null;
-      if (calendlyUrl) {
-        // Robust match for any button containing "Book" and one of the activity names, regardless of emojis or spacing
-        const activityPattern = /Book\s+(Go-Karts|Escape\s*Room|Laser\s*Tag|VR\s*Arcade)/i;
-        for (const b of mergedButtons) {
-          if (activityPattern.test(b.name || '')) {
-            b.request = b.request || {};
-            b.request.url = calendlyUrl;
-            if (DEBUG_BUTTONS) console.log(`[choice] SUCCESS: Transformed "${b.name}" into direct mini-app opener`);
-          }
-        }
-      }
+      // TRANSFORM ACTIVITY BUTTONS in choices
+      applyCalendlyToButtons(mergedButtons, overallCalendlyUrl);
 
       for (const s of syn) {
         if (!mergedButtons.some(b => {
@@ -1509,6 +1518,8 @@ async function sendVFToTelegram(ctx, vfResp) {
       const mediaUrl = t.payload?.imageUrl || '';
 
       const buttons = Array.isArray(t.payload?.buttons) ? t.payload.buttons : [];
+      applyCalendlyToButtons(buttons, overallCalendlyUrl); // TRANSFORM ACTIVITY BUTTONS in cards
+
       const kb = buttons.length ? makeCardV2Keyboard(userId, buttons) : null;
       const replyMarkup = kb ? { inline_keyboard: kb } : null;
 
@@ -1591,6 +1602,8 @@ async function sendVFToTelegram(ctx, vfResp) {
         const captionHtml = mdToHtml(normalizeSpacing([title, desc].filter(Boolean).join('\n\n'))) || undefined;
 
         const buttons = Array.isArray(c.buttons) ? c.buttons : [];
+        applyCalendlyToButtons(buttons, overallCalendlyUrl); // TRANSFORM ACTIVITY BUTTONS in carousels
+
         const kb = buttons.length ? makeCardV2Keyboard(userId, buttons) : null;
         const replyMarkup = kb ? { inline_keyboard: kb } : null;
 
