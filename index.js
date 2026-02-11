@@ -297,8 +297,8 @@ function linkifyBareUrlsToMarkdown(raw) {
 
 function extractCalendlyUrl(text) {
   if (!text) return null;
-  // Look for calendly.com/... - even inside src="URL" or similar
-  const re = /https:\/\/calendly\.com\/[^\s"'>]+/i;
+  // Look for calendly.com/... - handle www., and exclude trailing parentheses, quotes, or whitespace
+  const re = /https?:\/\/(www\.)?calendly\.com\/[^\s"'>\)]+/i;
   const match = text.match(re);
   return match ? match[0].trim() : null;
 }
@@ -1242,8 +1242,16 @@ async function renderTextChoiceGalleryAndButtonsLast(ctx, raw, maybeChoice) {
 
   for (const synBtn of allSynthetic) {
     const synUrl = extractUrlFromButton(synBtn);
-    if (!buttons.some((b) => extractUrlFromButton(b) === synUrl)) {
+    if (!synUrl) {
+      if (DEBUG_BUTTONS) console.log('[buttons] skipping synthetic button with no URL:', synBtn.name);
+      continue;
+    }
+    const alreadyPresent = buttons.some((b) => extractUrlFromButton(b) === synUrl);
+    if (!alreadyPresent) {
       buttons.unshift(synBtn);
+      if (DEBUG_BUTTONS) console.log('[buttons] added synthetic button:', synBtn.name);
+    } else {
+      if (DEBUG_BUTTONS) console.log('[buttons] synthetic button already present in keyboard:', synBtn.name);
     }
   }
 
