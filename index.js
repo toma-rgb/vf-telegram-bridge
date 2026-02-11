@@ -71,7 +71,7 @@ console.log(`[system] RESERVATIONS_MINI_APP_URL: ${RESERVATIONS_MINI_APP_URL ? '
 console.log(`[system] CALENDLY_MINI_APP_URL: ${CALENDLY_MINI_APP_URL ? '✅ SET' : '⚠️ MISSING'}`);
 console.log(`[system] MARKETPLACE_MINI_APP_URL: ${MARKETPLACE_MINI_APP_URL ? '✅ SET' : '⚠️ MISSING'}`);
 console.log(`[system] RESERVATIONS_MINI_APP_URL: ${RESERVATIONS_MINI_APP_URL ? '✅ SET' : '⚠️ MISSING'}`);
-console.log('🚀 BRIDGE VERSION: CALENDLY FIX + STREAMING SUPPORT (Commit 10b)');
+console.log('🚀 BRIDGE VERSION: CALENDLY FIX + STREAMING SUPPORT (Commit 11b)');
 
 // =====================
 // HTTP (keep-alive)
@@ -1256,6 +1256,9 @@ async function renderTextChoiceGalleryAndButtonsLast(ctx, raw, maybeChoice) {
       if (DEBUG_BUTTONS) console.log('[buttons] added synthetic button:', synBtn.name);
     }
   }
+
+  // --- INTERLEAVED CONTENT SEGMENTATION ---
+  const segments = segmentContent(textToDisplay);
 
   // PREPARE THE KEYBOARD
   let kb = null;
