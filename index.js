@@ -71,7 +71,7 @@ console.log(`[system] RESERVATIONS_MINI_APP_URL: ${RESERVATIONS_MINI_APP_URL ? '
 console.log(`[system] CALENDLY_MINI_APP_URL: ${CALENDLY_MINI_APP_URL ? '✅ SET' : '⚠️ MISSING'}`);
 console.log(`[system] MARKETPLACE_MINI_APP_URL: ${MARKETPLACE_MINI_APP_URL ? '✅ SET' : '⚠️ MISSING'}`);
 console.log(`[system] RESERVATIONS_MINI_APP_URL: ${RESERVATIONS_MINI_APP_URL ? '✅ SET' : '⚠️ MISSING'}`);
-console.log('🚀 BRIDGE VERSION: ROBUST MULTI-TRACE BUTTONS (Commit 14b)');
+console.log('🚀 BRIDGE VERSION: ROBUST MULTI-TRACE BUTTONS (Commit 15b)');
 
 // =====================
 // HTTP (keep-alive)
