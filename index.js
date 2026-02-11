@@ -68,7 +68,7 @@ console.log(
 console.log(`[system] CALENDLY_MINI_APP_URL: ${CALENDLY_MINI_APP_URL ? '✅ SET' : '⚠️ MISSING'}`);
 console.log(`[system] MARKETPLACE_MINI_APP_URL: ${MARKETPLACE_MINI_APP_URL ? '✅ SET' : '⚠️ MISSING'}`);
 console.log(`[system] RESERVATIONS_MINI_APP_URL: ${RESERVATIONS_MINI_APP_URL ? '✅ SET' : '⚠️ MISSING'}`);
-console.log('🚀 BRIDGE VERSION: ROBUST IFRAME REMOVAL (Commit 28b)');
+console.log('🚀 BRIDGE VERSION: UNIVERSAL HTML REMOVAL (Commit 29b)');
 
 // =====================
 // HTTP (keep-alive)
@@ -1247,27 +1247,31 @@ function getSyntheticButtons(raw, sourceName = 'unspecified') {
  * Cleans the text (removes link/iframe) and provides a prompt if the link was the only content.
  */
 function getProcessedTextForButtons(raw, calendlyUrl) {
-  let text = raw;
+  // First, ensure we are working with unescaped HTML so our regexes catch everything
+  let text = unescapeVfHtmlArtifacts(raw || '');
 
   // 1. Nuke ANY iframe that contains calendly.com (very aggressive)
   const iframeAggressiveRe = /<iframe[^>]*calendly\.com[^>]*>[\s\S]*?<\/iframe>/gi;
-  text = text.replace(iframeAggressiveRe, '').trim();
+  text = text.replace(iframeAggressiveRe, '');
 
-  // 2. Nuke direct strings of the Calendly URL if it's left behind
+  // 2. Final safety pass: Nuke ANY tag that contains "calendly" (case-insensitive)
+  const anyCalendlyTagRe = /<[^>]*calendly[^>]*>/gi;
+  text = text.replace(anyCalendlyTagRe, '');
+
+  // 3. Clean up direct URL leftovers
   if (calendlyUrl) {
-    // Escape for regex use
     const escapedUrl = calendlyUrl.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const urlRe = new RegExp(escapedUrl, 'gi');
-    text = text.replace(urlRe, '').replace(/\[\]\(\)/g, '').replace(/<a[^>]*><\/a>/gi, '').trim();
+    text = text.replace(urlRe, '');
   }
 
-  // 3. Prevent duplicate instructions
+  // Final cleanup of empty markdown/HTML artifacts
+  text = text.replace(/\[\]\(\)/g, '').replace(/<a[^>]*><\/a>/gi, '').trim();
+
+  // 4. Duplicate/Prompt handling
   const PROMPT = 'Use the "Book Now" button to complete the booking.';
   if (!text && calendlyUrl) {
     text = PROMPT;
-  } else if (text && calendlyUrl && !text.includes(PROMPT)) {
-    // Optionally append if we have text but no instruction? 
-    // Usually Voiceflow provides the instruction, so we don't append.
   }
 
   return text;
@@ -1276,8 +1280,11 @@ function getProcessedTextForButtons(raw, calendlyUrl) {
 async function renderTextChoiceGalleryAndButtonsLast(ctx, raw, maybeChoice, externalButtons = []) {
   let lastMsg = null;
   let consumed = false;
-  const calendlyUrl = extractCalendlyUrl(raw);
-  const textToDisplay = getProcessedTextForButtons(raw, calendlyUrl);
+
+  // Unescape before extraction or processing to ensure we catch encoded artifacts
+  const cleanRaw = unescapeVfHtmlArtifacts(raw || '');
+  const calendlyUrl = extractCalendlyUrl(cleanRaw);
+  const textToDisplay = getProcessedTextForButtons(cleanRaw, calendlyUrl);
 
   const buttons = maybeChoice?.payload?.buttons ? [...maybeChoice.payload.buttons] : [];
   const syn = [...externalButtons, ...getSyntheticButtons(raw, 'text-trace')];
