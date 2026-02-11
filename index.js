@@ -71,7 +71,7 @@ console.log(`[system] RESERVATIONS_MINI_APP_URL: ${RESERVATIONS_MINI_APP_URL ? '
 console.log(`[system] CALENDLY_MINI_APP_URL: ${CALENDLY_MINI_APP_URL ? '✅ SET' : '⚠️ MISSING'}`);
 console.log(`[system] MARKETPLACE_MINI_APP_URL: ${MARKETPLACE_MINI_APP_URL ? '✅ SET' : '⚠️ MISSING'}`);
 console.log(`[system] RESERVATIONS_MINI_APP_URL: ${RESERVATIONS_MINI_APP_URL ? '✅ SET' : '⚠️ MISSING'}`);
-console.log('🚀 BRIDGE VERSION: ROBUST MULTI-TRACE BUTTONS (Commit 13b)');
+console.log('🚀 BRIDGE VERSION: ROBUST MULTI-TRACE BUTTONS (Commit 14b)');
 
 // =====================
 // HTTP (keep-alive)
@@ -1384,542 +1384,541 @@ async function sendVFToTelegram(ctx, vfResp) {
   if (DEBUG_BUTTONS && responseSyntheticButtons.length) {
     console.log('[sendVF] Collected synthetic buttons from response:', responseSyntheticButtons.map(b => b.name));
   }
-  const t = traces[i];
-  if (!t) continue;
+  for (let i = 0; i < traces.length; i += 1) {
+    const t = traces[i];
+    if (!t) continue;
 
-  if (t.type === 'text') {
-    const isAi = t?.payload?.ai === true;
+    if (t.type === 'text') {
+      const isAi = t?.payload?.ai === true;
 
-    const raw = textOfTrace(t).trim();
-    if (!raw) continue;
+      const raw = textOfTrace(t).trim();
+      if (!raw) continue;
 
-    // If we streamed this AI response via completion events, don't send it again
-    const isHandledByStreaming = isAi && VF_COMPLETION_TO_TELEGRAM && hasRecentCompletionMsg;
-    if (isHandledByStreaming) {
-      const lb = lastBotMsgByUser.get(userId);
-      if (lb) {
-        lastMsgOverall = lb;
-        // Collect buttons for streaming-only responses that have no choice trace following
-        const syn = [...responseSyntheticButtons, ...getSyntheticButtons(raw, 'streamed-trace')];
+      // If we streamed this AI response via completion events, don't send it again
+      const isHandledByStreaming = isAi && VF_COMPLETION_TO_TELEGRAM && hasRecentCompletionMsg;
+      if (isHandledByStreaming) {
+        const lb = lastBotMsgByUser.get(userId);
+        if (lb) {
+          lastMsgOverall = lb;
+          // Collect buttons for streaming-only responses that have no choice trace following
+          const syn = [...responseSyntheticButtons, ...getSyntheticButtons(raw, 'streamed-trace')];
 
-        if (syn.length) {
-          ctx.state = ctx.state || {};
-          ctx.state.pendingSyntheticButtons = syn;
-          if (DEBUG_BUTTONS) console.log('[streaming] found synthetic buttons in streamed text:', syn.map(b => b.name));
+          if (syn.length) {
+            ctx.state = ctx.state || {};
+            ctx.state.pendingSyntheticButtons = syn;
+            if (DEBUG_BUTTONS) console.log('[streaming] found synthetic buttons in streamed text:', syn.map(b => b.name));
 
-          // If NO choice follows anywhere in this response, attach them to the streamed bubble now
-          const nextChoice = traces.slice(i + 1).find(nxt => nxt.type === 'choice' || nxt.type === 'cardV2');
-          if (!nextChoice) {
-            const kb = makeKeyboard(userId, syn);
-            await attachChoiceKeyboard(ctx, lb, kb);
-            ctx.state.pendingSyntheticButtons = [];
-            if (DEBUG_BUTTONS) console.log('[streaming] attached synthetic buttons to streamed bubble (no choice follows)');
+            // If NO choice follows anywhere in this response, attach them to the streamed bubble now
+            const nextChoice = traces.slice(i + 1).find(nxt => nxt.type === 'choice' || nxt.type === 'cardV2');
+            if (!nextChoice) {
+              const kb = makeKeyboard(userId, syn);
+              await attachChoiceKeyboard(ctx, lb, kb);
+              ctx.state.pendingSyntheticButtons = [];
+              if (DEBUG_BUTTONS) console.log('[streaming] attached synthetic buttons to streamed bubble (no choice follows)');
+            }
           }
         }
+        continue;
       }
-      continue;
-    }
 
-    const next = traces[i + 1];
-    const { consumed, lastMsg } = await renderTextChoiceGalleryAndButtonsLast(
-      ctx,
-      raw,
-      next?.type === 'choice' ? next : null,
-      responseSyntheticButtons
-    );
-
-    // TRACK HISTORY for smarter rendering
-    ctx.state = ctx.state || {};
-    ctx.state.lastTraceType = 'text';
-    ctx.state.lastTraceText = raw;
-
-    if (consumed && next?.type === 'choice') {
-      i += 1;
-    }
-    lastMsgOverall = lastMsg || lastBotMsgByUser.get(userId) || lastMsgOverall;
-    continue;
-  }
-
-  if (t.type === 'choice') {
-    const buttons = t.payload?.buttons || [];
-    if (!buttons.length) continue;
-
-    // Ensure streaming edits are flushed before attaching buttons
-    await completionFlush(ctx, userId);
-
-    const syn = [...responseSyntheticButtons, ...(ctx.state?.pendingSyntheticButtons || [])];
-    ctx.state.pendingSyntheticButtons = []; // clear
-
-    const mergedButtons = [...buttons];
-    for (const s of syn) {
-      if (!mergedButtons.some(b => {
-        const bUrl = extractUrlFromButton(b);
-        const sUrl = extractUrlFromButton(s);
-        return bUrl && sUrl && bUrl.toLowerCase() === sUrl.toLowerCase();
-      })) {
-        mergedButtons.unshift(s);
-        if (DEBUG_BUTTONS) console.log('[choice] Merged synthetic button:', s.name);
-      }
-    }
-
-    const kb = makeKeyboard(userId, mergedButtons);
-
-    // Prefer the most recent bot message (streaming message sets this)
-    const target = lastBotMsgByUser.get(userId) || lastMsgOverall || null;
-
-    const attached = await attachChoiceKeyboard(ctx, target, kb);
-    if (attached) lastMsgOverall = attached;
-    else lastMsgOverall = lastBotMsgByUser.get(userId) || lastMsgOverall;
-
-    continue;
-  }
-
-  if (t.type === 'visual' || t.type === 'image') {
-    const url = t.payload?.image || t.payload?.url || t.payload?.src;
-    if (DEBUG_MEDIA) console.log('[visual] url=', url);
-    if (url) {
-      const msg = await sendMediaWithCaption(ctx, url, undefined);
-      if (msg) {
-        lastMsgOverall = { chatId: msg.chat.id, message_id: msg.message_id, keyboard: 'none' };
-        lastBotMsgByUser.set(userId, lastMsgOverall);
-      }
-    }
-    continue;
-  }
-
-  // ------- CardV2 -------
-  if (t.type === 'cardV2') {
-    const title = t.payload?.title || '';
-    const descText =
-      (typeof t.payload?.description === 'string' ? t.payload?.description : t.payload?.description?.text) || '';
-    const mediaUrl = t.payload?.imageUrl || '';
-
-    const buttons = Array.isArray(t.payload?.buttons) ? t.payload.buttons : [];
-    const kb = buttons.length ? makeCardV2Keyboard(userId, buttons) : null;
-    const replyMarkup = kb ? { inline_keyboard: kb } : null;
-
-    let msgRef = null;
-
-    if (descText && mediaUrl) {
-      msgRef = await safeReplyHtml(ctx, mdToHtml(normalizeSpacing(descText)));
-      if (msgRef) {
-        lastMsgOverall = { chatId: msgRef.chat.id, message_id: msgRef.message_id, keyboard: 'none' };
-        lastBotMsgByUser.set(userId, lastMsgOverall);
-      }
-    } else if (!mediaUrl && (title || descText)) {
-      msgRef = await safeReplyHtml(ctx, mdToHtml(normalizeSpacing([title, descText].filter(Boolean).join('\n\n'))), {
-        reply_markup: replyMarkup || undefined,
-      });
-    }
-
-    if (mediaUrl) {
-      const mediaMsg = await sendMediaWithCaption(
+      const next = traces[i + 1];
+      const { consumed, lastMsg } = await renderTextChoiceGalleryAndButtonsLast(
         ctx,
-        mediaUrl,
-        title ? mdToHtml(title) : undefined,
-        replyMarkup || undefined
+        raw,
+        next?.type === 'choice' ? next : null,
+        responseSyntheticButtons
       );
-      if (mediaMsg) msgRef = mediaMsg;
-    }
 
-    if (msgRef) {
-      if (kb?.length) await ensureKeyboardOnMessage(ctx, msgRef, kb);
-      lastMsgOverall = { chatId: msgRef.chat.id, message_id: msgRef.message_id, keyboard: kb?.length ? 'card' : 'none' };
-      lastBotMsgByUser.set(userId, lastMsgOverall);
-    }
+      // TRACK HISTORY for smarter rendering
+      ctx.state = ctx.state || {};
+      ctx.state.lastTraceType = 'text';
+      ctx.state.lastTraceText = raw;
 
-    continue;
-  }
-
-  // ------- Legacy card -------
-  if (t.type === 'card') {
-    const title = t.payload?.title || '';
-    const desc = t.payload?.description || '';
-    const link = t.payload?.url;
-    const mediaUrl = t.payload?.image || t.payload?.imageUrl || t.payload?.thumbnail || t.payload?.media;
-
-    let topText = '';
-    if (mediaUrl) {
-      topText = normalizeSpacing([desc, link && !looksLikeMedia(link) ? link : null].filter(Boolean).join('\n'));
-    } else {
-      topText = normalizeSpacing([title, desc, link && !looksLikeMedia(link) ? link : null].filter(Boolean).join('\n'));
-    }
-
-    if (topText) {
-      const msg = await safeReplyHtml(ctx, mdToHtml(topText));
-      if (msg) {
-        lastMsgOverall = { chatId: msg.chat.id, message_id: msg.message_id, keyboard: 'none' };
-        lastBotMsgByUser.set(userId, lastMsgOverall);
+      if (consumed && next?.type === 'choice') {
+        i += 1;
       }
-    }
+      lastMsgOverall = lastMsg || lastBotMsgByUser.get(userId) || lastMsgOverall;
 
-    if (mediaUrl) {
-      const mediaMsg = await sendMediaWithCaption(ctx, mediaUrl, title ? mdToHtml(title) : undefined);
-      if (mediaMsg) {
-        lastMsgOverall = { chatId: mediaMsg.chat.id, message_id: mediaMsg.message_id, keyboard: 'none' };
-        lastBotMsgByUser.set(userId, lastMsgOverall);
-      }
-    }
-    continue;
-  }
+      if (t.type === 'choice') {
+        const buttons = t.payload?.buttons || [];
+        if (!buttons.length) continue;
 
-  // ------- Carousel → sequential cards -------
-  if (t.type === 'carousel') {
-    const cards = Array.isArray(t.payload?.cards) ? t.payload.cards : [];
-    if (!cards.length) continue;
+        // Ensure streaming edits are flushed before attaching buttons
+        await completionFlush(ctx, userId);
 
-    for (let idx = 0; idx < cards.length; idx += 1) {
-      const c = cards[idx] || {};
-      const title = c.title || '';
-      const desc = (typeof c.description === 'string' ? c.description : c.description?.text) || '';
-      const mediaUrl = c.imageUrl || c.image || c.mediaUrl || c.thumbnail;
+        const syn = [...responseSyntheticButtons, ...(ctx.state?.pendingSyntheticButtons || [])];
+        ctx.state.pendingSyntheticButtons = []; // clear
 
-      const captionHtml = mdToHtml(normalizeSpacing([title, desc].filter(Boolean).join('\n\n'))) || undefined;
-
-      const buttons = Array.isArray(c.buttons) ? c.buttons : [];
-      const kb = buttons.length ? makeCardV2Keyboard(userId, buttons) : null;
-      const replyMarkup = kb ? { inline_keyboard: kb } : null;
-
-      let msgRef = null;
-      if (mediaUrl) {
-        msgRef = await sendMediaWithCaption(ctx, mediaUrl, captionHtml, replyMarkup || undefined);
-      } else if (captionHtml) {
-        msgRef = await safeReplyHtml(ctx, captionHtml, { reply_markup: replyMarkup || undefined });
-      }
-
-      if (msgRef) {
-        if (kb?.length) await ensureKeyboardOnMessage(ctx, msgRef, kb);
-        lastMsgOverall = { chatId: msgRef.chat.id, message_id: msgRef.message_id, keyboard: kb?.length ? 'card' : 'none' };
-        lastBotMsgByUser.set(userId, lastMsgOverall);
-      }
-
-      await new Promise((r) => setTimeout(r, 250));
-    }
-    continue;
-  }
-
-  // Ignore completion traces here (handled realtime)
-  if (t.type === 'completion') continue;
-}
-}
-
-// =====================
-// Session & auto-reset
-// =====================
-const sessions = new Map(); // userId -> { lastTs, lastDay }
-
-function localDayStamp(tsMs) {
-  const d = new Date(tsMs + LOCAL_UTC_OFFSET_HOURS * 3600 * 1000);
-  const y = d.getUTCFullYear();
-  const m = String(d.getUTCMonth() + 1).padStart(2, '0');
-  const day = String(d.getUTCDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
-}
-
-function shouldResetConversationFor(userId) {
-  const s = sessions.get(userId);
-  if (!s) return true;
-  const now = Date.now();
-  if (SESSION_RESET_HOURS > 0 && now - s.lastTs > SESSION_RESET_HOURS * 3600 * 1000) return true;
-  if (SESSION_RESET_ON_DAY_CHANGE && localDayStamp(now) !== s.lastDay) return true;
-  return false;
-}
-
-function touchSession(userId) {
-  const now = Date.now();
-  sessions.set(userId, { lastTs: now, lastDay: localDayStamp(now) });
-}
-
-async function maybeAutoResetLaunch(ctx) {
-  const userId = ctx.from.id;
-  if (shouldResetConversationFor(userId)) {
-    await resetVoiceflow(userId);
-    const traces = await launchVoiceflow(ctx, userId);
-    await sendVFToTelegram(ctx, traces);
-    touchSession(userId);
-    return true;
-  }
-  return false;
-}
-
-// =====================
-// Streaming interaction
-// =====================
-async function streamVoiceflowInteraction(ctx, userId, action) {
-  const res = await api.post(
-    streamUrl(userId),
-    { action },
-    {
-      headers: vfHeaders({ stream: true }),
-      responseType: 'stream',
-    }
-  );
-
-  const traces = [];
-  let finished = false;
-
-  // Force realtime completion processing to be sequential,
-  // and WAIT for it before returning (prevents races with buttons).
-  // OPTIMIZATION: Use a counter to skip redundant intermediate text edits.
-  let realtimeChain = Promise.resolve();
-  let latestContentIdx = -1;
-
-  const finish = async (resolve) => {
-    if (finished) return;
-    finished = true;
-    try {
-      await realtimeChain;
-    } catch { }
-    resolve(traces);
-  };
-
-  return await new Promise((resolve, reject) => {
-    parseSseStream(res.data, ({ event, data }) => {
-      if (event === 'trace' && data && typeof data === 'object') {
-        const trace = data;
-        traces.push(trace);
-
-        const currentIdx = traces.length - 1;
-        if (trace.type === 'completion' && trace.payload?.state === 'content') {
-          latestContentIdx = currentIdx;
+        const mergedButtons = [...buttons];
+        for (const s of syn) {
+          if (!mergedButtons.some(b => {
+            const bUrl = extractUrlFromButton(b);
+            const sUrl = extractUrlFromButton(s);
+            return bUrl && sUrl && bUrl.toLowerCase() === sUrl.toLowerCase();
+          })) {
+            mergedButtons.unshift(s);
+            if (DEBUG_BUTTONS) console.log('[choice] Merged synthetic button:', s.name);
+          }
         }
 
-        realtimeChain = realtimeChain.then(async () => {
-          // Optimization: Skip rendering if a newer content trace has arrived.
-          // handleTraceRealtime will still update the accumulated buffer.
-          const isContent = trace.type === 'completion' && trace.payload?.state === 'content';
-          const skipRendering = isContent && currentIdx < latestContentIdx;
+        const kb = makeKeyboard(userId, mergedButtons);
 
-          await handleTraceRealtime(ctx, trace, { skipRendering });
-        }).catch(() => { });
-        return;
+        // Prefer the most recent bot message (streaming message sets this)
+        const target = lastBotMsgByUser.get(userId) || lastMsgOverall || null;
+
+        const attached = await attachChoiceKeyboard(ctx, target, kb);
+        if (attached) lastMsgOverall = attached;
+        else lastMsgOverall = lastBotMsgByUser.get(userId) || lastMsgOverall;
+
+        continue;
       }
-      if (event === 'end' || event === 'end-of-stream') {
-        finish(resolve).catch(() => resolve(traces));
+
+      if (t.type === 'visual' || t.type === 'image') {
+        const url = t.payload?.image || t.payload?.url || t.payload?.src;
+        if (DEBUG_MEDIA) console.log('[visual] url=', url);
+        if (url) {
+          const msg = await sendMediaWithCaption(ctx, url, undefined);
+          if (msg) {
+            lastMsgOverall = { chatId: msg.chat.id, message_id: msg.message_id, keyboard: 'none' };
+            lastBotMsgByUser.set(userId, lastMsgOverall);
+          }
+        }
+        continue;
       }
-    });
 
-    res.data.on('error', (err) => reject(err));
-    res.data.on('end', () => {
-      finish(resolve).catch(() => resolve(traces));
-    });
-  });
-}
+      // ------- CardV2 -------
+      if (t.type === 'cardV2') {
+        const title = t.payload?.title || '';
+        const descText =
+          (typeof t.payload?.description === 'string' ? t.payload?.description : t.payload?.description?.text) || '';
+        const mediaUrl = t.payload?.imageUrl || '';
 
-async function launchVoiceflow(ctx, userId) {
-  return await streamVoiceflowInteraction(ctx, userId, { type: 'launch' });
-}
+        const buttons = Array.isArray(t.payload?.buttons) ? t.payload.buttons : [];
+        const kb = buttons.length ? makeCardV2Keyboard(userId, buttons) : null;
+        const replyMarkup = kb ? { inline_keyboard: kb } : null;
 
-async function interactVoiceflow(ctx, userId, text) {
-  return await streamVoiceflowInteraction(ctx, userId, { type: 'text', payload: text });
-}
+        let msgRef = null;
 
-async function sendRequestToVoiceflow(ctx, userId, request) {
-  return await streamVoiceflowInteraction(ctx, userId, request);
-}
+        if (descText && mediaUrl) {
+          msgRef = await safeReplyHtml(ctx, mdToHtml(normalizeSpacing(descText)));
+          if (msgRef) {
+            lastMsgOverall = { chatId: msgRef.chat.id, message_id: msgRef.message_id, keyboard: 'none' };
+            lastBotMsgByUser.set(userId, lastMsgOverall);
+          }
+        } else if (!mediaUrl && (title || descText)) {
+          msgRef = await safeReplyHtml(ctx, mdToHtml(normalizeSpacing([title, descText].filter(Boolean).join('\n\n'))), {
+            reply_markup: replyMarkup || undefined,
+          });
+        }
 
-// =====================
-// ROUTES
-// =====================
-function wrap(fn) {
-  return async (ctx, next) => {
-    try {
-      await fn(ctx, next);
-    } catch (err) {
-      console.error('❌ Handler error:', err?.stack || err);
+        if (mediaUrl) {
+          const mediaMsg = await sendMediaWithCaption(
+            ctx,
+            mediaUrl,
+            title ? mdToHtml(title) : undefined,
+            replyMarkup || undefined
+          );
+          if (mediaMsg) msgRef = mediaMsg;
+        }
+
+        if (msgRef) {
+          if (kb?.length) await ensureKeyboardOnMessage(ctx, msgRef, kb);
+          lastMsgOverall = { chatId: msgRef.chat.id, message_id: msgRef.message_id, keyboard: kb?.length ? 'card' : 'none' };
+          lastBotMsgByUser.set(userId, lastMsgOverall);
+        }
+
+        continue;
+      }
+
+      // ------- Legacy card -------
+      if (t.type === 'card') {
+        const title = t.payload?.title || '';
+        const desc = t.payload?.description || '';
+        const link = t.payload?.url;
+        const mediaUrl = t.payload?.image || t.payload?.imageUrl || t.payload?.thumbnail || t.payload?.media;
+
+        let topText = '';
+        if (mediaUrl) {
+          topText = normalizeSpacing([desc, link && !looksLikeMedia(link) ? link : null].filter(Boolean).join('\n'));
+        } else {
+          topText = normalizeSpacing([title, desc, link && !looksLikeMedia(link) ? link : null].filter(Boolean).join('\n'));
+        }
+
+        if (topText) {
+          const msg = await safeReplyHtml(ctx, mdToHtml(topText));
+          if (msg) {
+            lastMsgOverall = { chatId: msg.chat.id, message_id: msg.message_id, keyboard: 'none' };
+            lastBotMsgByUser.set(userId, lastMsgOverall);
+          }
+        }
+
+        if (mediaUrl) {
+          const mediaMsg = await sendMediaWithCaption(ctx, mediaUrl, title ? mdToHtml(title) : undefined);
+          if (mediaMsg) {
+            lastMsgOverall = { chatId: mediaMsg.chat.id, message_id: mediaMsg.message_id, keyboard: 'none' };
+            lastBotMsgByUser.set(userId, lastMsgOverall);
+          }
+        }
+        continue;
+      }
+
+      // ------- Carousel → sequential cards -------
+      if (t.type === 'carousel') {
+        const cards = Array.isArray(t.payload?.cards) ? t.payload.cards : [];
+        if (!cards.length) continue;
+
+        for (let idx = 0; idx < cards.length; idx += 1) {
+          const c = cards[idx] || {};
+          const title = c.title || '';
+          const desc = (typeof c.description === 'string' ? c.description : c.description?.text) || '';
+          const mediaUrl = c.imageUrl || c.image || c.mediaUrl || c.thumbnail;
+
+          const captionHtml = mdToHtml(normalizeSpacing([title, desc].filter(Boolean).join('\n\n'))) || undefined;
+
+          const buttons = Array.isArray(c.buttons) ? c.buttons : [];
+          const kb = buttons.length ? makeCardV2Keyboard(userId, buttons) : null;
+          const replyMarkup = kb ? { inline_keyboard: kb } : null;
+
+          let msgRef = null;
+          if (mediaUrl) {
+            msgRef = await sendMediaWithCaption(ctx, mediaUrl, captionHtml, replyMarkup || undefined);
+          } else if (captionHtml) {
+            msgRef = await safeReplyHtml(ctx, captionHtml, { reply_markup: replyMarkup || undefined });
+          }
+
+          if (msgRef) {
+            if (kb?.length) await ensureKeyboardOnMessage(ctx, msgRef, kb);
+            lastMsgOverall = { chatId: msgRef.chat.id, message_id: msgRef.message_id, keyboard: kb?.length ? 'card' : 'none' };
+            lastBotMsgByUser.set(userId, lastMsgOverall);
+          }
+
+          await new Promise((r) => setTimeout(r, 250));
+        }
+        continue;
+      }
+
+      // Ignore completion traces here (handled realtime)
+      if (t.type === 'completion') continue;
+    }
+  }
+
+  // =====================
+  // Session & auto-reset
+  // =====================
+  const sessions = new Map(); // userId -> { lastTs, lastDay }
+
+  function localDayStamp(tsMs) {
+    const d = new Date(tsMs + LOCAL_UTC_OFFSET_HOURS * 3600 * 1000);
+    const y = d.getUTCFullYear();
+    const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(d.getUTCDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  }
+
+  function shouldResetConversationFor(userId) {
+    const s = sessions.get(userId);
+    if (!s) return true;
+    const now = Date.now();
+    if (SESSION_RESET_HOURS > 0 && now - s.lastTs > SESSION_RESET_HOURS * 3600 * 1000) return true;
+    if (SESSION_RESET_ON_DAY_CHANGE && localDayStamp(now) !== s.lastDay) return true;
+    return false;
+  }
+
+  function touchSession(userId) {
+    const now = Date.now();
+    sessions.set(userId, { lastTs: now, lastDay: localDayStamp(now) });
+  }
+
+  async function maybeAutoResetLaunch(ctx) {
+    const userId = ctx.from.id;
+    if (shouldResetConversationFor(userId)) {
+      await resetVoiceflow(userId);
+      const traces = await launchVoiceflow(ctx, userId);
+      await sendVFToTelegram(ctx, traces);
+      touchSession(userId);
+      return true;
+    }
+    return false;
+  }
+
+  // =====================
+  // Streaming interaction
+  // =====================
+  async function streamVoiceflowInteraction(ctx, userId, action) {
+    const res = await api.post(
+      streamUrl(userId),
+      { action },
+      {
+        headers: vfHeaders({ stream: true }),
+        responseType: 'stream',
+      }
+    );
+
+    const traces = [];
+    let finished = false;
+
+    // Force realtime completion processing to be sequential,
+    // and WAIT for it before returning (prevents races with buttons).
+    // OPTIMIZATION: Use a counter to skip redundant intermediate text edits.
+    let realtimeChain = Promise.resolve();
+    let latestContentIdx = -1;
+
+    const finish = async (resolve) => {
+      if (finished) return;
+      finished = true;
       try {
-        await ctx.reply('Sorry, something went wrong. Please try again.');
+        await realtimeChain;
       } catch { }
-    }
-  };
-}
+      resolve(traces);
+    };
 
-bot.start(
-  wrap(async (ctx) => {
-    const userId = ctx.from.id;
-    await resetVoiceflow(userId);
-    const stop = keepTyping(ctx);
-    try {
-      const traces = await launchVoiceflow(ctx, userId);
-      await sendVFToTelegram(ctx, traces);
-      touchSession(userId);
-    } finally {
-      stop();
-    }
-  })
-);
+    return await new Promise((resolve, reject) => {
+      parseSseStream(res.data, ({ event, data }) => {
+        if (event === 'trace' && data && typeof data === 'object') {
+          const trace = data;
+          traces.push(trace);
 
-bot.hears(
-  '/start',
-  wrap(async (ctx) => {
-    const userId = ctx.from.id;
-    await resetVoiceflow(userId);
-    const stop = keepTyping(ctx);
-    try {
-      const traces = await launchVoiceflow(ctx, userId);
-      await sendVFToTelegram(ctx, traces);
-      touchSession(userId);
-    } finally {
-      stop();
-    }
-  })
-);
+          const currentIdx = traces.length - 1;
+          if (trace.type === 'completion' && trace.payload?.state === 'content') {
+            latestContentIdx = currentIdx;
+          }
 
-bot.on(
-  'callback_query',
-  wrap(async (ctx) => {
-    const userId = ctx.from.id;
-    let data = ctx.callbackQuery?.data;
+          realtimeChain = realtimeChain.then(async () => {
+            // Optimization: Skip rendering if a newer content trace has arrived.
+            // handleTraceRealtime will still update the accumulated buffer.
+            const isContent = trace.type === 'completion' && trace.payload?.state === 'content';
+            const skipRendering = isContent && currentIdx < latestContentIdx;
 
-    await ctx.answerCbQuery().catch(() => { });
-    const stop = keepTyping(ctx);
+            await handleTraceRealtime(ctx, trace, { skipRendering });
+          }).catch(() => { });
+          return;
+        }
+        if (event === 'end' || event === 'end-of-stream') {
+          finish(resolve).catch(() => resolve(traces));
+        }
+      });
 
-    if (await maybeAutoResetLaunch(ctx)) {
-      stop();
-      return;
-    }
+      res.data.on('error', (err) => reject(err));
+      res.data.on('end', () => {
+        finish(resolve).catch(() => resolve(traces));
+      });
+    });
+  }
 
-    if (typeof data === 'string' && data.startsWith(CALLBACK_PREFIX)) data = stashTake(data, userId) ?? '';
+  async function launchVoiceflow(ctx, userId) {
+    return await streamVoiceflowInteraction(ctx, userId, { type: 'launch' });
+  }
 
-    if (typeof data === 'string' && data.startsWith(REQUEST_PREFIX)) {
+  async function interactVoiceflow(ctx, userId, text) {
+    return await streamVoiceflowInteraction(ctx, userId, { type: 'text', payload: text });
+  }
+
+  async function sendRequestToVoiceflow(ctx, userId, request) {
+    return await streamVoiceflowInteraction(ctx, userId, request);
+  }
+
+  // =====================
+  // ROUTES
+  // =====================
+  function wrap(fn) {
+    return async (ctx, next) => {
       try {
-        const req = JSON.parse(data.slice(REQUEST_PREFIX.length));
-        const traces = await sendRequestToVoiceflow(ctx, userId, req);
+        await fn(ctx, next);
+      } catch (err) {
+        console.error('❌ Handler error:', err?.stack || err);
+        try {
+          await ctx.reply('Sorry, something went wrong. Please try again.');
+        } catch { }
+      }
+    };
+  }
+
+  bot.start(
+    wrap(async (ctx) => {
+      const userId = ctx.from.id;
+      await resetVoiceflow(userId);
+      const stop = keepTyping(ctx);
+      try {
+        const traces = await launchVoiceflow(ctx, userId);
         await sendVFToTelegram(ctx, traces);
         touchSession(userId);
+      } finally {
+        stop();
+      }
+    })
+  );
+
+  bot.hears(
+    '/start',
+    wrap(async (ctx) => {
+      const userId = ctx.from.id;
+      await resetVoiceflow(userId);
+      const stop = keepTyping(ctx);
+      try {
+        const traces = await launchVoiceflow(ctx, userId);
+        await sendVFToTelegram(ctx, traces);
+        touchSession(userId);
+      } finally {
+        stop();
+      }
+    })
+  );
+
+  bot.on(
+    'callback_query',
+    wrap(async (ctx) => {
+      const userId = ctx.from.id;
+      let data = ctx.callbackQuery?.data;
+
+      await ctx.answerCbQuery().catch(() => { });
+      const stop = keepTyping(ctx);
+
+      if (await maybeAutoResetLaunch(ctx)) {
         stop();
         return;
-      } catch { }
-    }
+      }
 
-    if (typeof data === 'string' && data.trim().startsWith('{')) {
-      try {
-        const obj = JSON.parse(data);
-        if (obj && typeof obj === 'object' && obj.type) {
-          const traces = await sendRequestToVoiceflow(ctx, userId, obj);
+      if (typeof data === 'string' && data.startsWith(CALLBACK_PREFIX)) data = stashTake(data, userId) ?? '';
+
+      if (typeof data === 'string' && data.startsWith(REQUEST_PREFIX)) {
+        try {
+          const req = JSON.parse(data.slice(REQUEST_PREFIX.length));
+          const traces = await sendRequestToVoiceflow(ctx, userId, req);
           await sendVFToTelegram(ctx, traces);
           touchSession(userId);
           stop();
           return;
-        }
-      } catch { }
-    }
+        } catch { }
+      }
 
-    if (typeof data !== 'string') data = String(data ?? '');
-    try {
-      const traces = await interactVoiceflow(ctx, userId, data);
-      await sendVFToTelegram(ctx, traces);
-      touchSession(userId);
-    } finally {
-      stop();
-    }
-  })
-);
+      if (typeof data === 'string' && data.trim().startsWith('{')) {
+        try {
+          const obj = JSON.parse(data);
+          if (obj && typeof obj === 'object' && obj.type) {
+            const traces = await sendRequestToVoiceflow(ctx, userId, obj);
+            await sendVFToTelegram(ctx, traces);
+            touchSession(userId);
+            stop();
+            return;
+          }
+        } catch { }
+      }
 
-bot.on(
-  'voice',
-  wrap(async (ctx) => {
-    const userId = ctx.from.id;
-    const voice = ctx.message.voice;
+      if (typeof data !== 'string') data = String(data ?? '');
+      try {
+        const traces = await interactVoiceflow(ctx, userId, data);
+        await sendVFToTelegram(ctx, traces);
+        touchSession(userId);
+      } finally {
+        stop();
+      }
+    })
+  );
 
-    if (!openai) {
-      return await ctx.reply('Voice messages are not supported (OpenAI STT not configured).');
-    }
+  bot.on(
+    'voice',
+    wrap(async (ctx) => {
+      const userId = ctx.from.id;
+      const voice = ctx.message.voice;
 
-    const stop = keepTyping(ctx);
+      if (!openai) {
+        return await ctx.reply('Voice messages are not supported (OpenAI STT not configured).');
+      }
 
-    if (await maybeAutoResetLaunch(ctx)) {
-      stop();
-      return;
-    }
+      const stop = keepTyping(ctx);
 
-    try {
-      console.log(`[stt] processing voice from ${userId}, file_id: ${voice.file_id}`);
-
-      const fileLink = await ctx.telegram.getFileLink(voice.file_id);
-      const url = fileLink.toString();
-
-      const response = await api.get(url, { responseType: 'arraybuffer' });
-      const buffer = Buffer.from(response.data);
-      console.log(`[stt] downloaded ${buffer.length} bytes`);
-
-      console.log('[stt] sending to OpenAI Whisper API via axios...');
-
-      const formData = new FormData();
-      formData.append('file', buffer, { filename: `voice_${userId}.ogg`, contentType: 'audio/ogg' });
-      formData.append('model', 'whisper-1');
-
-      const sttRes = await api.post('https://api.openai.com/v1/audio/transcriptions', formData, {
-        headers: {
-          'Authorization': `Bearer ${OPENAI_API_KEY}`,
-          ...formData.getHeaders()
-        }
-      });
-
-      const text = sttRes.data.text;
-      console.log(`[stt] success: "${text}"`);
-
-      if (!text || !text.trim()) {
-        await ctx.reply("Sorry, I couldn't hear what you said. Could you try again?");
+      if (await maybeAutoResetLaunch(ctx)) {
+        stop();
         return;
       }
 
-      // Inform the user what we heard (as requested: "sent as a text")
-      await ctx.reply(`<i>" ${text} "</i>`, { parse_mode: 'HTML' });
+      try {
+        console.log(`[stt] processing voice from ${userId}, file_id: ${voice.file_id}`);
 
-      const traces = await interactVoiceflow(ctx, userId, text);
-      await sendVFToTelegram(ctx, traces);
-      touchSession(userId);
-    } catch (err) {
-      const errDetail = err?.response?.data?.error?.message || err?.message || String(err);
-      console.error('❌ STT error:', errDetail, err?.response?.data || '');
-      await ctx.reply(`Sorry, I had trouble processing your voice message: ${errDetail}`);
-    } finally {
-      stop();
-    }
-  })
-);
+        const fileLink = await ctx.telegram.getFileLink(voice.file_id);
+        const url = fileLink.toString();
 
-bot.on(
-  'text',
-  wrap(async (ctx) => {
-    const userId = ctx.from.id;
-    const text = ctx.message.text;
-    if (text.trim() === '/start') return;
+        const response = await api.get(url, { responseType: 'arraybuffer' });
+        const buffer = Buffer.from(response.data);
+        console.log(`[stt] downloaded ${buffer.length} bytes`);
 
-    const stop = keepTyping(ctx);
+        console.log('[stt] sending to OpenAI Whisper API via axios...');
 
-    if (await maybeAutoResetLaunch(ctx)) {
-      stop();
-      return;
-    }
+        const formData = new FormData();
+        formData.append('file', buffer, { filename: `voice_${userId}.ogg`, contentType: 'audio/ogg' });
+        formData.append('model', 'whisper-1');
 
-    try {
-      const traces = await interactVoiceflow(ctx, userId, text);
-      await sendVFToTelegram(ctx, traces);
-      touchSession(userId);
-    } finally {
-      stop();
-    }
-  })
-);
+        const sttRes = await api.post('https://api.openai.com/v1/audio/transcriptions', formData, {
+          headers: {
+            'Authorization': `Bearer ${OPENAI_API_KEY}`,
+            ...formData.getHeaders()
+          }
+        });
 
-// =====================
-// START
-// =====================
-bot.launch({ polling: { timeout: 60 } });
-console.log('✅ Telegram ↔ Voiceflow bridge running (STREAMING)');
+        const text = sttRes.data.text;
+        console.log(`[stt] success: "${text}"`);
 
-bot.catch((err, ctx) => {
-  console.error('❌ Telegraf caught error for update:', JSON.stringify(ctx.update || {}));
-  console.error(err?.stack || err);
-});
+        if (!text || !text.trim()) {
+          await ctx.reply("Sorry, I couldn't hear what you said. Could you try again?");
+          return;
+        }
 
-process.on('unhandledRejection', (reason) => {
-  console.error('UNHANDLED REJECTION:', reason);
-});
-process.on('uncaughtException', (err) => {
-  console.error('UNCAUGHT EXCEPTION:', err?.stack || err);
-});
-process.once('SIGINT', () => bot.stop('SIGINT'));
-process.once('SIGTERM', () => bot.stop('SIGTERM'));
+        // Inform the user what we heard (as requested: "sent as a text")
+        await ctx.reply(`<i>" ${text} "</i>`, { parse_mode: 'HTML' });
+
+        const traces = await interactVoiceflow(ctx, userId, text);
+        await sendVFToTelegram(ctx, traces);
+        touchSession(userId);
+      } catch (err) {
+        const errDetail = err?.response?.data?.error?.message || err?.message || String(err);
+        console.error('❌ STT error:', errDetail, err?.response?.data || '');
+        await ctx.reply(`Sorry, I had trouble processing your voice message: ${errDetail}`);
+      } finally {
+        stop();
+      }
+    })
+  );
+
+  bot.on(
+    'text',
+    wrap(async (ctx) => {
+      const userId = ctx.from.id;
+      const text = ctx.message.text;
+      if (text.trim() === '/start') return;
+
+      const stop = keepTyping(ctx);
+
+      if (await maybeAutoResetLaunch(ctx)) {
+        stop();
+        return;
+      }
+
+      try {
+        const traces = await interactVoiceflow(ctx, userId, text);
+        await sendVFToTelegram(ctx, traces);
+        touchSession(userId);
+      } finally {
+        stop();
+      }
+    })
+  );
+
+  // =====================
+  // START
+  // =====================
+  bot.launch({ polling: { timeout: 60 } });
+  console.log('✅ Telegram ↔ Voiceflow bridge running (STREAMING)');
+
+  bot.catch((err, ctx) => {
+    console.error('❌ Telegraf caught error for update:', JSON.stringify(ctx.update || {}));
+    console.error(err?.stack || err);
+  });
+
+  process.on('unhandledRejection', (reason) => {
+    console.error('UNHANDLED REJECTION:', reason);
+  });
+  process.on('uncaughtException', (err) => {
+    console.error('UNCAUGHT EXCEPTION:', err?.stack || err);
+  });
+  process.once('SIGINT', () => bot.stop('SIGINT'));
+  process.once('SIGTERM', () => bot.stop('SIGTERM'));
