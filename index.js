@@ -71,7 +71,7 @@ console.log(`[system] RESERVATIONS_MINI_APP_URL: ${RESERVATIONS_MINI_APP_URL ? '
 console.log(`[system] CALENDLY_MINI_APP_URL: ${CALENDLY_MINI_APP_URL ? '✅ SET' : '⚠️ MISSING'}`);
 console.log(`[system] MARKETPLACE_MINI_APP_URL: ${MARKETPLACE_MINI_APP_URL ? '✅ SET' : '⚠️ MISSING'}`);
 console.log(`[system] RESERVATIONS_MINI_APP_URL: ${RESERVATIONS_MINI_APP_URL ? '✅ SET' : '⚠️ MISSING'}`);
-console.log('🚀 BRIDGE VERSION: CALENDLY FIX + STREAMING SUPPORT (Commit 12b)');
+console.log('🚀 BRIDGE VERSION: ROBUST MULTI-TRACE BUTTONS (Commit 13b)');
 
 // =====================
 // HTTP (keep-alive)
@@ -1191,16 +1191,14 @@ async function ensureKeyboardOnMessage(ctx, msg, inlineKeyboard) {
   }
 }
 
-/**
- * Detects synthetic buttons based on text content (Calendly, Marketplace, etc.)
- */
-function getSyntheticButtons(raw) {
+function getSyntheticButtons(raw, sourceName = 'unspecified') {
   if (!raw) return [];
   const buttons = [];
 
   // Calendly
   const calendlyUrl = extractCalendlyUrl(raw);
   if (calendlyUrl && CALENDLY_MINI_APP_URL) {
+    if (DEBUG_BUTTONS) console.log(`[buttons][${sourceName}] Found Calendly link:`, calendlyUrl);
     buttons.push({ name: '📅 Book Now', request: { url: calendlyUrl } });
   }
 
@@ -1212,6 +1210,7 @@ function getSyntheticButtons(raw) {
 
   for (const config of miniConfigs) {
     if (config.url && config.pattern.test(raw)) {
+      if (DEBUG_BUTTONS) console.log(`[buttons][${sourceName}] Found Mini App link pattern:`, config.label);
       buttons.push({ name: config.label, request: { url: config.url } });
     }
   }
@@ -1237,24 +1236,29 @@ function getProcessedTextForButtons(raw, calendlyUrl) {
   return text;
 }
 
-async function renderTextChoiceGalleryAndButtonsLast(ctx, raw, maybeChoice) {
+async function renderTextChoiceGalleryAndButtonsLast(ctx, raw, maybeChoice, externalButtons = []) {
   let lastMsg = null;
   let consumed = false;
   const calendlyUrl = extractCalendlyUrl(raw);
   const textToDisplay = getProcessedTextForButtons(raw, calendlyUrl);
 
   const buttons = maybeChoice?.payload?.buttons ? [...maybeChoice.payload.buttons] : [];
-  const syn = getSyntheticButtons(raw);
+  const syn = [...externalButtons, ...getSyntheticButtons(raw, 'text-trace')];
 
-  if (DEBUG_BUTTONS && syn.length) console.log('[buttons] Found synthetic:', syn.map(b => b.name));
+  if (DEBUG_BUTTONS && syn.length) console.log('[buttons] Total synthetic to merge:', syn.map(b => b.name));
 
   for (const synBtn of syn) {
     const synUrl = extractUrlFromButton(synBtn);
     if (!synUrl) continue;
-    const alreadyPresent = buttons.some((b) => extractUrlFromButton(b) === synUrl);
+    const alreadyPresent = buttons.some((b) => {
+      const bUrl = extractUrlFromButton(b);
+      return bUrl && bUrl.toLowerCase() === synUrl.toLowerCase();
+    });
     if (!alreadyPresent) {
       buttons.unshift(synBtn);
-      if (DEBUG_BUTTONS) console.log('[buttons] added synthetic button:', synBtn.name);
+      if (DEBUG_BUTTONS) console.log('[buttons] unshifted synthetic button:', synBtn.name);
+    } else {
+      if (DEBUG_BUTTONS) console.log('[buttons] synthetic already present:', synBtn.name);
     }
   }
 
@@ -1347,7 +1351,11 @@ async function renderTextChoiceGalleryAndButtonsLast(ctx, raw, maybeChoice) {
     consumed = true;
   }
 
-  return { consumed };
+  if (DEBUG_BUTTONS && kb) {
+    console.log('[render] final keyboard structure:', JSON.stringify(kb.inline_keyboard.map(r => r.map(b => b.text))));
+  }
+
+  return { consumed, lastMsg };
 }
 
 async function sendVFToTelegram(ctx, vfResp) {
@@ -1360,132 +1368,223 @@ async function sendVFToTelegram(ctx, vfResp) {
   const hasRecentCompletionMsg =
     !!comp?.msg && !!comp?.accumulated?.trim() && (comp.active || (comp.endedAt && Date.now() - comp.endedAt < 90_000));
 
-  for (let i = 0; i < traces.length; i += 1) {
-    const t = traces[i];
-    if (!t) continue;
-
+  // --- PRE-SCAN ALL TRACES FOR SYNTHETIC BUTTONS ---
+  const responseSyntheticButtons = [];
+  for (const t of traces) {
     if (t.type === 'text') {
-      const isAi = t?.payload?.ai === true;
+      const raw = textOfTrace(t);
+      const syn = getSyntheticButtons(raw, 'pre-scan-text');
+      for (const s of syn) if (!responseSyntheticButtons.some(b => b.name === s.name)) responseSyntheticButtons.push(s);
+    } else if (t.type === 'card' || t.type === 'cardV2') {
+      const raw = [t.payload?.title, t.payload?.description].filter(Boolean).join(' ');
+      const syn = getSyntheticButtons(raw, 'pre-scan-card');
+      for (const s of syn) if (!responseSyntheticButtons.some(b => b.name === s.name)) responseSyntheticButtons.push(s);
+    }
+  }
+  if (DEBUG_BUTTONS && responseSyntheticButtons.length) {
+    console.log('[sendVF] Collected synthetic buttons from response:', responseSyntheticButtons.map(b => b.name));
+  }
+  const t = traces[i];
+  if (!t) continue;
 
-      const raw = textOfTrace(t).trim();
-      if (!raw) continue;
+  if (t.type === 'text') {
+    const isAi = t?.payload?.ai === true;
 
-      // If we streamed this AI response via completion events, don't send it again
-      const isHandledByStreaming = isAi && VF_COMPLETION_TO_TELEGRAM && hasRecentCompletionMsg;
-      if (isHandledByStreaming) {
-        const lb = lastBotMsgByUser.get(userId);
-        if (lb) {
-          lastMsgOverall = lb;
-          // Even if streamed, detect synthetic buttons to prepend to next choice or attach now
-          const syn = getSyntheticButtons(raw);
-          if (syn.length) {
-            ctx.state = ctx.state || {};
-            ctx.state.pendingSyntheticButtons = syn;
-            if (DEBUG_BUTTONS) console.log('[streaming] found synthetic buttons in streamed text:', syn.map(b => b.name));
+    const raw = textOfTrace(t).trim();
+    if (!raw) continue;
 
-            // If NO choice follows, we should attach them to the streamed bubble now
-            const next = traces[i + 1];
-            if (next?.type !== 'choice') {
-              const kb = makeKeyboard(userId, syn);
-              await attachChoiceKeyboard(ctx, lb, kb);
-              ctx.state.pendingSyntheticButtons = [];
-            }
+    // If we streamed this AI response via completion events, don't send it again
+    const isHandledByStreaming = isAi && VF_COMPLETION_TO_TELEGRAM && hasRecentCompletionMsg;
+    if (isHandledByStreaming) {
+      const lb = lastBotMsgByUser.get(userId);
+      if (lb) {
+        lastMsgOverall = lb;
+        // Collect buttons for streaming-only responses that have no choice trace following
+        const syn = [...responseSyntheticButtons, ...getSyntheticButtons(raw, 'streamed-trace')];
+
+        if (syn.length) {
+          ctx.state = ctx.state || {};
+          ctx.state.pendingSyntheticButtons = syn;
+          if (DEBUG_BUTTONS) console.log('[streaming] found synthetic buttons in streamed text:', syn.map(b => b.name));
+
+          // If NO choice follows anywhere in this response, attach them to the streamed bubble now
+          const nextChoice = traces.slice(i + 1).find(nxt => nxt.type === 'choice' || nxt.type === 'cardV2');
+          if (!nextChoice) {
+            const kb = makeKeyboard(userId, syn);
+            await attachChoiceKeyboard(ctx, lb, kb);
+            ctx.state.pendingSyntheticButtons = [];
+            if (DEBUG_BUTTONS) console.log('[streaming] attached synthetic buttons to streamed bubble (no choice follows)');
           }
         }
-        continue;
-      }
-
-      const next = traces[i + 1];
-      const { consumed } = await renderTextChoiceGalleryAndButtonsLast(ctx, raw, next?.type === 'choice' ? next : null);
-
-      // TRACK HISTORY for smarter rendering
-      ctx.state = ctx.state || {};
-      ctx.state.lastTraceType = 'text';
-      ctx.state.lastTraceText = raw;
-
-      if (consumed && next?.type === 'choice') {
-        i += 1;
-      }
-      lastMsgOverall = lastBotMsgByUser.get(userId) || lastMsgOverall;
-      continue;
-    }
-
-    if (t.type === 'choice') {
-      const buttons = t.payload?.buttons || [];
-      if (!buttons.length) continue;
-
-      // Ensure streaming edits are flushed before attaching buttons
-      await completionFlush(ctx, userId);
-
-      const syn = ctx.state?.pendingSyntheticButtons || [];
-      ctx.state.pendingSyntheticButtons = []; // clear
-
-      const mergedButtons = [...buttons];
-      for (const s of syn) {
-        if (!mergedButtons.some(b => extractUrlFromButton(b) === extractUrlFromButton(s))) {
-          mergedButtons.unshift(s);
-          if (DEBUG_BUTTONS) console.log('[choice] Merged synthetic button from streaming:', s.name);
-        }
-      }
-
-      const kb = makeKeyboard(userId, mergedButtons);
-
-      // Prefer the most recent bot message (streaming message sets this)
-      const target = lastBotMsgByUser.get(userId) || lastMsgOverall || null;
-
-      const attached = await attachChoiceKeyboard(ctx, target, kb);
-      if (attached) lastMsgOverall = attached;
-      else lastMsgOverall = lastBotMsgByUser.get(userId) || lastMsgOverall;
-
-      continue;
-    }
-
-    if (t.type === 'visual' || t.type === 'image') {
-      const url = t.payload?.image || t.payload?.url || t.payload?.src;
-      if (DEBUG_MEDIA) console.log('[visual] url=', url);
-      if (url) {
-        const msg = await sendMediaWithCaption(ctx, url, undefined);
-        if (msg) {
-          lastMsgOverall = { chatId: msg.chat.id, message_id: msg.message_id, keyboard: 'none' };
-          lastBotMsgByUser.set(userId, lastMsgOverall);
-        }
       }
       continue;
     }
 
-    // ------- CardV2 -------
-    if (t.type === 'cardV2') {
-      const title = t.payload?.title || '';
-      const descText =
-        (typeof t.payload?.description === 'string' ? t.payload?.description : t.payload?.description?.text) || '';
-      const mediaUrl = t.payload?.imageUrl || '';
+    const next = traces[i + 1];
+    const { consumed, lastMsg } = await renderTextChoiceGalleryAndButtonsLast(
+      ctx,
+      raw,
+      next?.type === 'choice' ? next : null,
+      responseSyntheticButtons
+    );
 
-      const buttons = Array.isArray(t.payload?.buttons) ? t.payload.buttons : [];
+    // TRACK HISTORY for smarter rendering
+    ctx.state = ctx.state || {};
+    ctx.state.lastTraceType = 'text';
+    ctx.state.lastTraceText = raw;
+
+    if (consumed && next?.type === 'choice') {
+      i += 1;
+    }
+    lastMsgOverall = lastMsg || lastBotMsgByUser.get(userId) || lastMsgOverall;
+    continue;
+  }
+
+  if (t.type === 'choice') {
+    const buttons = t.payload?.buttons || [];
+    if (!buttons.length) continue;
+
+    // Ensure streaming edits are flushed before attaching buttons
+    await completionFlush(ctx, userId);
+
+    const syn = [...responseSyntheticButtons, ...(ctx.state?.pendingSyntheticButtons || [])];
+    ctx.state.pendingSyntheticButtons = []; // clear
+
+    const mergedButtons = [...buttons];
+    for (const s of syn) {
+      if (!mergedButtons.some(b => {
+        const bUrl = extractUrlFromButton(b);
+        const sUrl = extractUrlFromButton(s);
+        return bUrl && sUrl && bUrl.toLowerCase() === sUrl.toLowerCase();
+      })) {
+        mergedButtons.unshift(s);
+        if (DEBUG_BUTTONS) console.log('[choice] Merged synthetic button:', s.name);
+      }
+    }
+
+    const kb = makeKeyboard(userId, mergedButtons);
+
+    // Prefer the most recent bot message (streaming message sets this)
+    const target = lastBotMsgByUser.get(userId) || lastMsgOverall || null;
+
+    const attached = await attachChoiceKeyboard(ctx, target, kb);
+    if (attached) lastMsgOverall = attached;
+    else lastMsgOverall = lastBotMsgByUser.get(userId) || lastMsgOverall;
+
+    continue;
+  }
+
+  if (t.type === 'visual' || t.type === 'image') {
+    const url = t.payload?.image || t.payload?.url || t.payload?.src;
+    if (DEBUG_MEDIA) console.log('[visual] url=', url);
+    if (url) {
+      const msg = await sendMediaWithCaption(ctx, url, undefined);
+      if (msg) {
+        lastMsgOverall = { chatId: msg.chat.id, message_id: msg.message_id, keyboard: 'none' };
+        lastBotMsgByUser.set(userId, lastMsgOverall);
+      }
+    }
+    continue;
+  }
+
+  // ------- CardV2 -------
+  if (t.type === 'cardV2') {
+    const title = t.payload?.title || '';
+    const descText =
+      (typeof t.payload?.description === 'string' ? t.payload?.description : t.payload?.description?.text) || '';
+    const mediaUrl = t.payload?.imageUrl || '';
+
+    const buttons = Array.isArray(t.payload?.buttons) ? t.payload.buttons : [];
+    const kb = buttons.length ? makeCardV2Keyboard(userId, buttons) : null;
+    const replyMarkup = kb ? { inline_keyboard: kb } : null;
+
+    let msgRef = null;
+
+    if (descText && mediaUrl) {
+      msgRef = await safeReplyHtml(ctx, mdToHtml(normalizeSpacing(descText)));
+      if (msgRef) {
+        lastMsgOverall = { chatId: msgRef.chat.id, message_id: msgRef.message_id, keyboard: 'none' };
+        lastBotMsgByUser.set(userId, lastMsgOverall);
+      }
+    } else if (!mediaUrl && (title || descText)) {
+      msgRef = await safeReplyHtml(ctx, mdToHtml(normalizeSpacing([title, descText].filter(Boolean).join('\n\n'))), {
+        reply_markup: replyMarkup || undefined,
+      });
+    }
+
+    if (mediaUrl) {
+      const mediaMsg = await sendMediaWithCaption(
+        ctx,
+        mediaUrl,
+        title ? mdToHtml(title) : undefined,
+        replyMarkup || undefined
+      );
+      if (mediaMsg) msgRef = mediaMsg;
+    }
+
+    if (msgRef) {
+      if (kb?.length) await ensureKeyboardOnMessage(ctx, msgRef, kb);
+      lastMsgOverall = { chatId: msgRef.chat.id, message_id: msgRef.message_id, keyboard: kb?.length ? 'card' : 'none' };
+      lastBotMsgByUser.set(userId, lastMsgOverall);
+    }
+
+    continue;
+  }
+
+  // ------- Legacy card -------
+  if (t.type === 'card') {
+    const title = t.payload?.title || '';
+    const desc = t.payload?.description || '';
+    const link = t.payload?.url;
+    const mediaUrl = t.payload?.image || t.payload?.imageUrl || t.payload?.thumbnail || t.payload?.media;
+
+    let topText = '';
+    if (mediaUrl) {
+      topText = normalizeSpacing([desc, link && !looksLikeMedia(link) ? link : null].filter(Boolean).join('\n'));
+    } else {
+      topText = normalizeSpacing([title, desc, link && !looksLikeMedia(link) ? link : null].filter(Boolean).join('\n'));
+    }
+
+    if (topText) {
+      const msg = await safeReplyHtml(ctx, mdToHtml(topText));
+      if (msg) {
+        lastMsgOverall = { chatId: msg.chat.id, message_id: msg.message_id, keyboard: 'none' };
+        lastBotMsgByUser.set(userId, lastMsgOverall);
+      }
+    }
+
+    if (mediaUrl) {
+      const mediaMsg = await sendMediaWithCaption(ctx, mediaUrl, title ? mdToHtml(title) : undefined);
+      if (mediaMsg) {
+        lastMsgOverall = { chatId: mediaMsg.chat.id, message_id: mediaMsg.message_id, keyboard: 'none' };
+        lastBotMsgByUser.set(userId, lastMsgOverall);
+      }
+    }
+    continue;
+  }
+
+  // ------- Carousel → sequential cards -------
+  if (t.type === 'carousel') {
+    const cards = Array.isArray(t.payload?.cards) ? t.payload.cards : [];
+    if (!cards.length) continue;
+
+    for (let idx = 0; idx < cards.length; idx += 1) {
+      const c = cards[idx] || {};
+      const title = c.title || '';
+      const desc = (typeof c.description === 'string' ? c.description : c.description?.text) || '';
+      const mediaUrl = c.imageUrl || c.image || c.mediaUrl || c.thumbnail;
+
+      const captionHtml = mdToHtml(normalizeSpacing([title, desc].filter(Boolean).join('\n\n'))) || undefined;
+
+      const buttons = Array.isArray(c.buttons) ? c.buttons : [];
       const kb = buttons.length ? makeCardV2Keyboard(userId, buttons) : null;
       const replyMarkup = kb ? { inline_keyboard: kb } : null;
 
       let msgRef = null;
-
-      if (descText && mediaUrl) {
-        msgRef = await safeReplyHtml(ctx, mdToHtml(normalizeSpacing(descText)));
-        if (msgRef) {
-          lastMsgOverall = { chatId: msgRef.chat.id, message_id: msgRef.message_id, keyboard: 'none' };
-          lastBotMsgByUser.set(userId, lastMsgOverall);
-        }
-      } else if (!mediaUrl && (title || descText)) {
-        msgRef = await safeReplyHtml(ctx, mdToHtml(normalizeSpacing([title, descText].filter(Boolean).join('\n\n'))), {
-          reply_markup: replyMarkup || undefined,
-        });
-      }
-
       if (mediaUrl) {
-        const mediaMsg = await sendMediaWithCaption(
-          ctx,
-          mediaUrl,
-          title ? mdToHtml(title) : undefined,
-          replyMarkup || undefined
-        );
-        if (mediaMsg) msgRef = mediaMsg;
+        msgRef = await sendMediaWithCaption(ctx, mediaUrl, captionHtml, replyMarkup || undefined);
+      } else if (captionHtml) {
+        msgRef = await safeReplyHtml(ctx, captionHtml, { reply_markup: replyMarkup || undefined });
       }
 
       if (msgRef) {
@@ -1494,79 +1593,14 @@ async function sendVFToTelegram(ctx, vfResp) {
         lastBotMsgByUser.set(userId, lastMsgOverall);
       }
 
-      continue;
+      await new Promise((r) => setTimeout(r, 250));
     }
-
-    // ------- Legacy card -------
-    if (t.type === 'card') {
-      const title = t.payload?.title || '';
-      const desc = t.payload?.description || '';
-      const link = t.payload?.url;
-      const mediaUrl = t.payload?.image || t.payload?.imageUrl || t.payload?.thumbnail || t.payload?.media;
-
-      let topText = '';
-      if (mediaUrl) {
-        topText = normalizeSpacing([desc, link && !looksLikeMedia(link) ? link : null].filter(Boolean).join('\n'));
-      } else {
-        topText = normalizeSpacing([title, desc, link && !looksLikeMedia(link) ? link : null].filter(Boolean).join('\n'));
-      }
-
-      if (topText) {
-        const msg = await safeReplyHtml(ctx, mdToHtml(topText));
-        if (msg) {
-          lastMsgOverall = { chatId: msg.chat.id, message_id: msg.message_id, keyboard: 'none' };
-          lastBotMsgByUser.set(userId, lastMsgOverall);
-        }
-      }
-
-      if (mediaUrl) {
-        const mediaMsg = await sendMediaWithCaption(ctx, mediaUrl, title ? mdToHtml(title) : undefined);
-        if (mediaMsg) {
-          lastMsgOverall = { chatId: mediaMsg.chat.id, message_id: mediaMsg.message_id, keyboard: 'none' };
-          lastBotMsgByUser.set(userId, lastMsgOverall);
-        }
-      }
-      continue;
-    }
-
-    // ------- Carousel → sequential cards -------
-    if (t.type === 'carousel') {
-      const cards = Array.isArray(t.payload?.cards) ? t.payload.cards : [];
-      if (!cards.length) continue;
-
-      for (let idx = 0; idx < cards.length; idx += 1) {
-        const c = cards[idx] || {};
-        const title = c.title || '';
-        const desc = (typeof c.description === 'string' ? c.description : c.description?.text) || '';
-        const mediaUrl = c.imageUrl || c.image || c.mediaUrl || c.thumbnail;
-
-        const captionHtml = mdToHtml(normalizeSpacing([title, desc].filter(Boolean).join('\n\n'))) || undefined;
-
-        const buttons = Array.isArray(c.buttons) ? c.buttons : [];
-        const kb = buttons.length ? makeCardV2Keyboard(userId, buttons) : null;
-        const replyMarkup = kb ? { inline_keyboard: kb } : null;
-
-        let msgRef = null;
-        if (mediaUrl) {
-          msgRef = await sendMediaWithCaption(ctx, mediaUrl, captionHtml, replyMarkup || undefined);
-        } else if (captionHtml) {
-          msgRef = await safeReplyHtml(ctx, captionHtml, { reply_markup: replyMarkup || undefined });
-        }
-
-        if (msgRef) {
-          if (kb?.length) await ensureKeyboardOnMessage(ctx, msgRef, kb);
-          lastMsgOverall = { chatId: msgRef.chat.id, message_id: msgRef.message_id, keyboard: kb?.length ? 'card' : 'none' };
-          lastBotMsgByUser.set(userId, lastMsgOverall);
-        }
-
-        await new Promise((r) => setTimeout(r, 250));
-      }
-      continue;
-    }
-
-    // Ignore completion traces here (handled realtime)
-    if (t.type === 'completion') continue;
+    continue;
   }
+
+  // Ignore completion traces here (handled realtime)
+  if (t.type === 'completion') continue;
+}
 }
 
 // =====================
