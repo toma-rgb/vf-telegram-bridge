@@ -68,7 +68,7 @@ console.log(
 console.log(`[system] CALENDLY_MINI_APP_URL: ${CALENDLY_MINI_APP_URL ? '✅ SET' : '⚠️ MISSING'}`);
 console.log(`[system] MARKETPLACE_MINI_APP_URL: ${MARKETPLACE_MINI_APP_URL ? '✅ SET' : '⚠️ MISSING'}`);
 console.log(`[system] RESERVATIONS_MINI_APP_URL: ${RESERVATIONS_MINI_APP_URL ? '✅ SET' : '⚠️ MISSING'}`);
-console.log('🚀 BRIDGE VERSION: COMPREHENSIVE ACTIVITY MINI-APPS (Commit 20b)');
+console.log('🚀 BRIDGE VERSION: COMPREHENSIVE ACTIVITY MINI-APPS (Commit 21b)');
 
 // =====================
 // HTTP (keep-alive)
@@ -1361,12 +1361,23 @@ async function renderTextChoiceGalleryAndButtonsLast(ctx, raw, maybeChoice, exte
  */
 function applyCalendlyToButtons(buttons, calendlyUrl) {
   if (!calendlyUrl || !Array.isArray(buttons)) return;
-  const activityPattern = /Book\s+(Go-Karts|Escape\s*Room|Laser\s*Tag|VR\s*Arcade)/i;
+  const activityNames = ['Go-Karts', 'Escape Room', 'Laser Tag', 'VR Arcade'];
+
+  if (DEBUG_BUTTONS) console.log(`[buttons] applyCalendlyToButtons starting for ${buttons.length} buttons. URL found: ${calendlyUrl}`);
+
   for (const b of buttons) {
-    if (activityPattern.test(b.name || '')) {
+    const btnName = b.name || '';
+    const matchesActivity = activityNames.some(name => btnName.toLowerCase().includes(name.toLowerCase()));
+    const includesBook = btnName.toLowerCase().includes('book');
+
+    if (DEBUG_BUTTONS) {
+      console.log(`[buttons] Checking button: "${btnName}" | matchesActivity: ${matchesActivity} | includesBook: ${includesBook}`);
+    }
+
+    if (matchesActivity && includesBook) {
       b.request = b.request || {};
       b.request.url = calendlyUrl;
-      if (DEBUG_BUTTONS) console.log(`[buttons] Transformed "${b.name}" into direct mini-app opener`);
+      if (DEBUG_BUTTONS) console.log(`[buttons] SUCCESS: Transformed "${btnName}" into direct mini-app opener`);
     }
   }
 }
