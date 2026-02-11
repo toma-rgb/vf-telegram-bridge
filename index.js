@@ -68,7 +68,7 @@ console.log(
 console.log(`[system] CALENDLY_MINI_APP_URL: ${CALENDLY_MINI_APP_URL ? '✅ SET' : '⚠️ MISSING'}`);
 console.log(`[system] MARKETPLACE_MINI_APP_URL: ${MARKETPLACE_MINI_APP_URL ? '✅ SET' : '⚠️ MISSING'}`);
 console.log(`[system] RESERVATIONS_MINI_APP_URL: ${RESERVATIONS_MINI_APP_URL ? '✅ SET' : '⚠️ MISSING'}`);
-console.log('🚀 BRIDGE VERSION: ROBUST MULTI-TRACE BUTTONS (Commit 16b)');
+console.log('🚀 BRIDGE VERSION: ACTIVITY BUTTON MINI-APPS (Commit 18b)');
 
 // =====================
 // HTTP (keep-alive)
@@ -1451,15 +1451,16 @@ async function sendVFToTelegram(ctx, vfResp) {
       const mergedButtons = [...buttons];
 
       // TRANSFORM ACTIVITY BUTTONS: If we found a Calendly URL, inject it into matching Book [Activity] buttons
-      const calendlyBtn = syn.find(b => b.name === '📅 Book Now');
+      const calendlyBtn = syn.find(b => b.name && b.name.includes('Book Now'));
       const calendlyUrl = calendlyBtn ? extractUrlFromButton(calendlyBtn) : null;
       if (calendlyUrl) {
+        // Match buttons containing "Book [Activity]", potentially preceded by emojis
         const activityPattern = /Book (Go-Karts|Escape Room|Laser Tag|VR Arcade)/i;
         for (const b of mergedButtons) {
           if (activityPattern.test(b.name || '')) {
             b.request = b.request || {};
             b.request.url = calendlyUrl;
-            if (DEBUG_BUTTONS) console.log(`[choice] Transformed ${b.name} into direct mini-app opener`);
+            if (DEBUG_BUTTONS) console.log(`[choice] Transformed matching button "${b.name}" into direct mini-app opener`);
           }
         }
       }
