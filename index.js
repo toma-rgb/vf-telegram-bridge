@@ -1361,23 +1361,26 @@ async function renderTextChoiceGalleryAndButtonsLast(ctx, raw, maybeChoice, exte
  */
 function applyCalendlyToButtons(buttons, calendlyUrl) {
   if (!calendlyUrl || !Array.isArray(buttons)) return;
-  const activityNames = ['Go-Karts', 'Escape Room', 'Laser Tag', 'VR Arcade'];
+  const terms = ['karts', 'escape', 'laser', 'vr arcade', 'arcade'];
 
-  if (DEBUG_BUTTONS) console.log(`[buttons] applyCalendlyToButtons starting for ${buttons.length} buttons. URL found: ${calendlyUrl}`);
+  if (DEBUG_BUTTONS) console.log(`[buttons] applyCalendlyToButtons starting. URL: ${calendlyUrl}`);
 
   for (const b of buttons) {
-    const btnName = b.name || '';
-    const matchesActivity = activityNames.some(name => btnName.toLowerCase().includes(name.toLowerCase()));
-    const includesBook = btnName.toLowerCase().includes('book');
+    const rawName = b.name || '';
+    const lowName = rawName.toLowerCase();
+
+    // Check if the button is a booking button for one of our target activities
+    const hasBook = lowName.includes('book');
+    const hasTerm = terms.some(t => lowName.includes(t));
 
     if (DEBUG_BUTTONS) {
-      console.log(`[buttons] Checking button: "${btnName}" | matchesActivity: ${matchesActivity} | includesBook: ${includesBook}`);
+      console.log(`[buttons] Checking: "${rawName}" | hasBook: ${hasBook} | hasTerm: ${hasTerm}`);
     }
 
-    if (matchesActivity && includesBook) {
+    if (hasBook && hasTerm) {
       b.request = b.request || {};
       b.request.url = calendlyUrl;
-      if (DEBUG_BUTTONS) console.log(`[buttons] SUCCESS: Transformed "${btnName}" into direct mini-app opener`);
+      if (DEBUG_BUTTONS) console.log(`[buttons] SUCCESS: Transformed "${rawName}"`);
     }
   }
 }
