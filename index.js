@@ -1449,6 +1449,21 @@ async function sendVFToTelegram(ctx, vfResp) {
       ctx.state.pendingSyntheticButtons = []; // clear
 
       const mergedButtons = [...buttons];
+
+      // TRANSFORM ACTIVITY BUTTONS: If we found a Calendly URL, inject it into matching Book [Activity] buttons
+      const calendlyBtn = syn.find(b => b.name === '📅 Book Now');
+      const calendlyUrl = calendlyBtn ? extractUrlFromButton(calendlyBtn) : null;
+      if (calendlyUrl) {
+        const activityPattern = /Book (Go-Karts|Escape Room|Laser Tag|VR Arcade)/i;
+        for (const b of mergedButtons) {
+          if (activityPattern.test(b.name || '')) {
+            b.request = b.request || {};
+            b.request.url = calendlyUrl;
+            if (DEBUG_BUTTONS) console.log(`[choice] Transformed ${b.name} into direct mini-app opener`);
+          }
+        }
+      }
+
       for (const s of syn) {
         if (!mergedButtons.some(b => {
           const bUrl = extractUrlFromButton(b);
