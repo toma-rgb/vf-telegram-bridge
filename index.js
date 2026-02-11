@@ -68,7 +68,7 @@ console.log(
 console.log(`[system] CALENDLY_MINI_APP_URL: ${CALENDLY_MINI_APP_URL ? '✅ SET' : '⚠️ MISSING'}`);
 console.log(`[system] MARKETPLACE_MINI_APP_URL: ${MARKETPLACE_MINI_APP_URL ? '✅ SET' : '⚠️ MISSING'}`);
 console.log(`[system] RESERVATIONS_MINI_APP_URL: ${RESERVATIONS_MINI_APP_URL ? '✅ SET' : '⚠️ MISSING'}`);
-console.log('🚀 BRIDGE VERSION: UNIVERSAL HTML REMOVAL (Commit 29b)');
+console.log('🚀 BRIDGE VERSION: COMPREHENSIVE IFRAME SUPPRESSION (Commit 30b)');
 
 // =====================
 // HTTP (keep-alive)
@@ -629,7 +629,12 @@ async function handleTraceRealtime(ctx, trace, { skipRendering = false } = {}) {
     completionStateByUser.set(userId, s);
 
     if (skipRendering) return;
-    await completionSendOrUpdate(ctx, userId, s.accumulated);
+
+    // FINAL SEALANT: Clean the streaming text BEFORE showing it
+    const calendlyUrl = extractCalendlyUrl(s.accumulated);
+    const cleanText = getProcessedTextForButtons(s.accumulated, calendlyUrl);
+
+    await completionSendOrUpdate(ctx, userId, cleanText);
     return;
   }
 
@@ -1250,8 +1255,11 @@ function getProcessedTextForButtons(raw, calendlyUrl) {
   // First, ensure we are working with unescaped HTML so our regexes catch everything
   let text = unescapeVfHtmlArtifacts(raw || '');
 
-  // 1. Nuke ANY iframe that contains calendly.com (very aggressive)
+  // Flag if we found an iframe to know if we should also clean prompts
   const iframeAggressiveRe = /<iframe[^>]*calendly\.com[^>]*>[\s\S]*?<\/iframe>/gi;
+  const foundIframe = iframeAggressiveRe.test(text);
+
+  // 1. Nuke ANY iframe that contains calendly.com (very aggressive)
   text = text.replace(iframeAggressiveRe, '');
 
   // 2. Final safety pass: Nuke ANY tag that contains "calendly" (case-insensitive)
@@ -1265,10 +1273,21 @@ function getProcessedTextForButtons(raw, calendlyUrl) {
     text = text.replace(urlRe, '');
   }
 
-  // Final cleanup of empty markdown/HTML artifacts
-  text = text.replace(/\[\]\(\)/g, '').replace(/<a[^>]*><\/a>/gi, '').trim();
+  // 4. SUPPRESS BOOKING PROMPTS if an iframe was removed
+  // We don't want "Your booking calendar is ready below!" if the calendar is gone.
+  if (foundIframe || calendlyUrl) {
+    const promptsToRemove = [
+      /your booking calendar is ready below!/gi,
+      /use the calendar below[^.]*\./gi,
+      /booking calendar is ready below/gi
+    ];
+    for (const p of promptsToRemove) text = text.replace(p, '');
+  }
 
-  // 4. Duplicate/Prompt handling
+  // Final cleanup of empty markdown/HTML artifacts
+  text = text.replace(/\[\]\(\)/g, '').replace(/<a[^>]*><\/a>/gi, '').replace(/\n\s*\n/g, '\n').trim();
+
+  // 5. Duplicate/Prompt handling
   const PROMPT = 'Use the "Book Now" button to complete the booking.';
   if (!text && calendlyUrl) {
     text = PROMPT;
