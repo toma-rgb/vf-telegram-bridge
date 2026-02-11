@@ -68,7 +68,10 @@ console.log(
 console.log(`[system] CALENDLY_MINI_APP_URL: ${CALENDLY_MINI_APP_URL ? '✅ SET' : '⚠️ MISSING'}`);
 console.log(`[system] MARKETPLACE_MINI_APP_URL: ${MARKETPLACE_MINI_APP_URL ? '✅ SET' : '⚠️ MISSING'}`);
 console.log(`[system] RESERVATIONS_MINI_APP_URL: ${RESERVATIONS_MINI_APP_URL ? '✅ SET' : '⚠️ MISSING'}`);
-console.log('🚀 BRIDGE VERSION: CALENDLY FIX ACTIVE (Commit 9b)');
+console.log(`[system] CALENDLY_MINI_APP_URL: ${CALENDLY_MINI_APP_URL ? '✅ SET' : '⚠️ MISSING'}`);
+console.log(`[system] MARKETPLACE_MINI_APP_URL: ${MARKETPLACE_MINI_APP_URL ? '✅ SET' : '⚠️ MISSING'}`);
+console.log(`[system] RESERVATIONS_MINI_APP_URL: ${RESERVATIONS_MINI_APP_URL ? '✅ SET' : '⚠️ MISSING'}`);
+console.log('🚀 BRIDGE VERSION: CALENDLY FIX + STREAMING SUPPORT (Commit 10b)');
 
 // =====================
 // HTTP (keep-alive)
@@ -1188,39 +1191,20 @@ async function ensureKeyboardOnMessage(ctx, msg, inlineKeyboard) {
   }
 }
 
-async function renderTextChoiceGalleryAndButtonsLast(ctx, raw, maybeChoice) {
-  let lastMsg = null;
-  let textToDisplay = raw;
+/**
+ * Detects synthetic buttons based on text content (Calendly, Marketplace, etc.)
+ */
+function getSyntheticButtons(raw) {
+  if (!raw) return [];
+  const buttons = [];
 
-  // Handle inline Calendly links/iframes
+  // Calendly
   const calendlyUrl = extractCalendlyUrl(raw);
-  let syntheticCalendlyButton = null;
-
   if (calendlyUrl && CALENDLY_MINI_APP_URL) {
-    if (DEBUG_BUTTONS) console.log('[calendly] Found URL:', calendlyUrl);
-    // 1) Clean the text (remove the iframe code or bare link)
-    const iframeRe = /<iframe[^>]*src=["']https:\/\/calendly\.com\/[^"']*["'][^>]*>[^]*?<\/iframe>/gi;
-    textToDisplay = raw.replace(iframeRe, '').trim();
-
-    if (textToDisplay.includes(calendlyUrl)) {
-      textToDisplay = textToDisplay.replace(calendlyUrl, '').replace(/\[\]\(\)/g, '').trim();
-    }
-
-    const PROMPT = 'Please use the button below to complete your booking:';
-    if (!textToDisplay) {
-      const previousTrace = ctx.state?.lastTraceType === 'text' ? ctx.state?.lastTraceText : null;
-      if (!(previousTrace?.includes('Please use the Calendly window below') || previousTrace?.includes('complete your booking'))) {
-        textToDisplay = PROMPT;
-      }
-    }
-
-    syntheticCalendlyButton = { name: '📅 Book Now', request: { url: calendlyUrl } };
-  } else if (calendlyUrl) {
-    console.warn('[calendly] Found URL but CALENDLY_MINI_APP_URL is missing or empty!');
+    buttons.push({ name: '📅 Book Now', request: { url: calendlyUrl } });
   }
 
-  // Handle Mini App link detection (Reservations & Marketplace)
-  let syntheticMiniAppButtons = [];
+  // Mini App link detection (Reservations & Marketplace)
   const miniConfigs = [
     { url: RESERVATIONS_MINI_APP_URL, label: '🍴 Book Dining', pattern: /reservations\.html/i },
     { url: MARKETPLACE_MINI_APP_URL, label: '🛍️ Open Marketplace', pattern: /marketplace\.html/i }
@@ -1228,33 +1212,48 @@ async function renderTextChoiceGalleryAndButtonsLast(ctx, raw, maybeChoice) {
 
   for (const config of miniConfigs) {
     if (config.url && config.pattern.test(raw)) {
-      syntheticMiniAppButtons.push({ name: config.label, request: { url: config.url } });
-      if (DEBUG_BUTTONS) console.log(`[auto-button] Added synthetic ${config.label}`);
+      buttons.push({ name: config.label, request: { url: config.url } });
     }
   }
+  return buttons;
+}
 
-  // --- INTERLEAVED CONTENT SEGMENTATION ---
-  const segments = segmentContent(textToDisplay);
+/**
+ * Cleans the text (removes link/iframe) and provides a prompt if the link was the only content.
+ */
+function getProcessedTextForButtons(raw, calendlyUrl) {
+  let text = raw;
+  const iframeRe = /<iframe[^>]*src=["']https:\/\/calendly\.com\/[^"']*["'][^>]*>[^]*?<\/iframe>/gi;
+  text = text.replace(iframeRe, '').trim();
 
-  let consumed = false;
-  let buttons = maybeChoice?.payload?.buttons ? [...maybeChoice.payload.buttons] : [];
+  if (calendlyUrl && text.includes(calendlyUrl)) {
+    text = text.replace(calendlyUrl, '').replace(/\[\]\(\)/g, '').trim();
+  }
 
-  // Add our synthetic buttons
-  const allSynthetic = [...syntheticMiniAppButtons];
-  if (syntheticCalendlyButton) allSynthetic.push(syntheticCalendlyButton);
+  const PROMPT = 'Please use the button below to complete your booking:';
+  if (!text && calendlyUrl) {
+    text = PROMPT;
+  }
+  return text;
+}
 
-  for (const synBtn of allSynthetic) {
+async function renderTextChoiceGalleryAndButtonsLast(ctx, raw, maybeChoice) {
+  let lastMsg = null;
+  const calendlyUrl = extractCalendlyUrl(raw);
+  const textToDisplay = getProcessedTextForButtons(raw, calendlyUrl);
+
+  const buttons = maybeChoice?.payload?.buttons ? [...maybeChoice.payload.buttons] : [];
+  const syn = getSyntheticButtons(raw);
+
+  if (DEBUG_BUTTONS && syn.length) console.log('[buttons] Found synthetic:', syn.map(b => b.name));
+
+  for (const synBtn of syn) {
     const synUrl = extractUrlFromButton(synBtn);
-    if (!synUrl) {
-      if (DEBUG_BUTTONS) console.log('[buttons] skipping synthetic button with no URL:', synBtn.name);
-      continue;
-    }
+    if (!synUrl) continue;
     const alreadyPresent = buttons.some((b) => extractUrlFromButton(b) === synUrl);
     if (!alreadyPresent) {
       buttons.unshift(synBtn);
       if (DEBUG_BUTTONS) console.log('[buttons] added synthetic button:', synBtn.name);
-    } else {
-      if (DEBUG_BUTTONS) console.log('[buttons] synthetic button already present in keyboard:', synBtn.name);
     }
   }
 
@@ -1340,7 +1339,7 @@ async function renderTextChoiceGalleryAndButtonsLast(ctx, raw, maybeChoice) {
   }
 
   // CRITICAL FIX: Only set consumed = true if we actually "stole" the buttons from a real choice trace
-  if (kb) {
+  if (kb && maybeChoice) {
     consumed = true;
   }
 
@@ -1364,16 +1363,33 @@ async function sendVFToTelegram(ctx, vfResp) {
     if (t.type === 'text') {
       const isAi = t?.payload?.ai === true;
 
+      const raw = textOfTrace(t).trim();
+      if (!raw) continue;
+
       // If we streamed this AI response via completion events, don't send it again
       const isHandledByStreaming = isAi && VF_COMPLETION_TO_TELEGRAM && hasRecentCompletionMsg;
       if (isHandledByStreaming) {
         const lb = lastBotMsgByUser.get(userId);
-        if (lb) lastMsgOverall = lb;
+        if (lb) {
+          lastMsgOverall = lb;
+          // Even if streamed, detect synthetic buttons to prepend to next choice or attach now
+          const syn = getSyntheticButtons(raw);
+          if (syn.length) {
+            ctx.state = ctx.state || {};
+            ctx.state.pendingSyntheticButtons = syn;
+            if (DEBUG_BUTTONS) console.log('[streaming] found synthetic buttons in streamed text:', syn.map(b => b.name));
+
+            // If NO choice follows, we should attach them to the streamed bubble now
+            const next = traces[i + 1];
+            if (next?.type !== 'choice') {
+              const kb = makeKeyboard(userId, syn);
+              await attachChoiceKeyboard(ctx, lb, kb);
+              ctx.state.pendingSyntheticButtons = [];
+            }
+          }
+        }
         continue;
       }
-
-      const raw = textOfTrace(t).trim();
-      if (!raw) continue;
 
       const next = traces[i + 1];
       const { consumed } = await renderTextChoiceGalleryAndButtonsLast(ctx, raw, next?.type === 'choice' ? next : null);
@@ -1383,10 +1399,8 @@ async function sendVFToTelegram(ctx, vfResp) {
       ctx.state.lastTraceType = 'text';
       ctx.state.lastTraceText = raw;
 
-      if (consumed) {
+      if (consumed && next?.type === 'choice') {
         i += 1;
-        lastMsgOverall = lastBotMsgByUser.get(userId) || lastMsgOverall;
-        continue;
       }
       lastMsgOverall = lastBotMsgByUser.get(userId) || lastMsgOverall;
       continue;
@@ -1399,7 +1413,18 @@ async function sendVFToTelegram(ctx, vfResp) {
       // Ensure streaming edits are flushed before attaching buttons
       await completionFlush(ctx, userId);
 
-      const kb = makeKeyboard(userId, buttons);
+      const syn = ctx.state?.pendingSyntheticButtons || [];
+      ctx.state.pendingSyntheticButtons = []; // clear
+
+      const mergedButtons = [...buttons];
+      for (const s of syn) {
+        if (!mergedButtons.some(b => extractUrlFromButton(b) === extractUrlFromButton(s))) {
+          mergedButtons.unshift(s);
+          if (DEBUG_BUTTONS) console.log('[choice] Merged synthetic button from streaming:', s.name);
+        }
+      }
+
+      const kb = makeKeyboard(userId, mergedButtons);
 
       // Prefer the most recent bot message (streaming message sets this)
       const target = lastBotMsgByUser.get(userId) || lastMsgOverall || null;
