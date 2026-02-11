@@ -68,7 +68,7 @@ console.log(
 console.log(`[system] CALENDLY_MINI_APP_URL: ${CALENDLY_MINI_APP_URL ? '✅ SET' : '⚠️ MISSING'}`);
 console.log(`[system] MARKETPLACE_MINI_APP_URL: ${MARKETPLACE_MINI_APP_URL ? '✅ SET' : '⚠️ MISSING'}`);
 console.log(`[system] RESERVATIONS_MINI_APP_URL: ${RESERVATIONS_MINI_APP_URL ? '✅ SET' : '⚠️ MISSING'}`);
-console.log('🚀 BRIDGE VERSION: COMPREHENSIVE ACTIVITY MINI-APPS (Commit 21b)');
+console.log('🚀 BRIDGE VERSION: ROBUST ACTIVITY MINI-APPS (Commit 22b)');
 
 // =====================
 // HTTP (keep-alive)
@@ -1945,8 +1945,21 @@ bot.on(
 // =====================
 // START
 // =====================
-bot.launch({ polling: { timeout: 60 } });
-console.log('✅ Telegram ↔ Voiceflow bridge running (STREAMING)');
+async function startBot(retries = 5) {
+  try {
+    await bot.launch({ polling: { timeout: 60 } });
+    console.log('✅ Telegram ↔ Voiceflow bridge running (STREAMING)');
+  } catch (err) {
+    if (err.message && err.message.includes('409') && retries > 0) {
+      console.warn(`⚠️ 409 Conflict detected. Another instance is likely running. Retrying in 5s... (${retries} left)`);
+      setTimeout(() => startBot(retries - 1), 5000);
+    } else {
+      console.error('❌ Failed to launch bot:', err);
+    }
+  }
+}
+
+startBot();
 
 bot.catch((err, ctx) => {
   console.error('❌ Telegraf caught error for update:', JSON.stringify(ctx.update || {}));
