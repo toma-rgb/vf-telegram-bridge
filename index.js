@@ -71,7 +71,7 @@ console.log(`[system] RESERVATIONS_MINI_APP_URL: ${RESERVATIONS_MINI_APP_URL ? '
 console.log(`[system] CALENDLY_MINI_APP_URL: ${CALENDLY_MINI_APP_URL ? '✅ SET' : '⚠️ MISSING'}`);
 console.log(`[system] MARKETPLACE_MINI_APP_URL: ${MARKETPLACE_MINI_APP_URL ? '✅ SET' : '⚠️ MISSING'}`);
 console.log(`[system] RESERVATIONS_MINI_APP_URL: ${RESERVATIONS_MINI_APP_URL ? '✅ SET' : '⚠️ MISSING'}`);
-console.log('🚀 BRIDGE VERSION: CALENDLY FIX + STREAMING SUPPORT (Commit 11b)');
+console.log('🚀 BRIDGE VERSION: CALENDLY FIX + STREAMING SUPPORT (Commit 12b)');
 
 // =====================
 // HTTP (keep-alive)
@@ -1239,6 +1239,7 @@ function getProcessedTextForButtons(raw, calendlyUrl) {
 
 async function renderTextChoiceGalleryAndButtonsLast(ctx, raw, maybeChoice) {
   let lastMsg = null;
+  let consumed = false;
   const calendlyUrl = extractCalendlyUrl(raw);
   const textToDisplay = getProcessedTextForButtons(raw, calendlyUrl);
 
