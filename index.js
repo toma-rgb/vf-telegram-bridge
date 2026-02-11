@@ -68,7 +68,7 @@ console.log(
 console.log(`[system] CALENDLY_MINI_APP_URL: ${CALENDLY_MINI_APP_URL ? '✅ SET' : '⚠️ MISSING'}`);
 console.log(`[system] MARKETPLACE_MINI_APP_URL: ${MARKETPLACE_MINI_APP_URL ? '✅ SET' : '⚠️ MISSING'}`);
 console.log(`[system] RESERVATIONS_MINI_APP_URL: ${RESERVATIONS_MINI_APP_URL ? '✅ SET' : '⚠️ MISSING'}`);
-console.log('🚀 BRIDGE VERSION: COMPREHENSIVE MINI-APP FIX (Commit 24b)');
+console.log('🚀 BRIDGE VERSION: DEEP MINI-APP INTEGRATION (Commit 25b)');
 
 // =====================
 // HTTP (keep-alive)
@@ -1003,15 +1003,20 @@ function makeKeyboard(userId, buttons) {
 
     let buttonObj;
     if (url) {
-      if (CALENDLY_MINI_APP_URL && url.includes('calendly.com')) {
-        // Swap for Mini App
-        const webAppUrl = `${CALENDLY_MINI_APP_URL}?url=${encodeURIComponent(url)}`;
+      const isCalendlySite = url.includes('calendly.com');
+      const isGitHubMiniApp = CALENDLY_MINI_APP_URL && url.includes(CALENDLY_MINI_APP_URL.split('?')[0]);
+
+      if (CALENDLY_MINI_APP_URL && (isCalendlySite || isGitHubMiniApp)) {
+        // Swap for Mini App / Ensure web_app type
+        let webAppUrl = url;
+        if (isCalendlySite && !isGitHubMiniApp) {
+          webAppUrl = `${CALENDLY_MINI_APP_URL}${CALENDLY_MINI_APP_URL.includes('?') ? '&' : '?'}url=${encodeURIComponent(url)}`;
+        }
+        if (DEBUG_BUTTONS) console.log(`[buttons] Mini App Swap: "${text}" -> ${webAppUrl}`);
         buttonObj = { text, web_app: { url: webAppUrl } };
       } else if (MARKETPLACE_MINI_APP_URL && (url.toLowerCase().includes('marketplace') || url.toLowerCase().includes('dutyfree'))) {
-        // Swap for Marketplace Mini App
         buttonObj = { text, web_app: { url: MARKETPLACE_MINI_APP_URL } };
       } else if (RESERVATIONS_MINI_APP_URL && url.toLowerCase().includes('reservations')) {
-        // Swap for Reservations Mini App
         buttonObj = { text, web_app: { url: RESERVATIONS_MINI_APP_URL } };
       } else {
         buttonObj = { text, url };
@@ -1058,15 +1063,19 @@ function makeCardV2Keyboard(userId, buttons = []) {
 
     let buttonObj;
     if (url) {
-      if (CALENDLY_MINI_APP_URL && url.includes('calendly.com')) {
-        // Swap for Mini App
-        const webAppUrl = `${CALENDLY_MINI_APP_URL}?url=${encodeURIComponent(url)}`;
+      const isCalendlySite = url.includes('calendly.com');
+      const isGitHubMiniApp = CALENDLY_MINI_APP_URL && url.includes(CALENDLY_MINI_APP_URL.split('?')[0]);
+
+      if (CALENDLY_MINI_APP_URL && (isCalendlySite || isGitHubMiniApp)) {
+        let webAppUrl = url;
+        if (isCalendlySite && !isGitHubMiniApp) {
+          webAppUrl = `${CALENDLY_MINI_APP_URL}${CALENDLY_MINI_APP_URL.includes('?') ? '&' : '?'}url=${encodeURIComponent(url)}`;
+        }
+        if (DEBUG_BUTTONS) console.log(`[buttons] CardV2 Mini App Swap: "${label}" -> ${webAppUrl}`);
         buttonObj = { text: label, web_app: { url: webAppUrl } };
       } else if (MARKETPLACE_MINI_APP_URL && (url.toLowerCase().includes('marketplace') || url.toLowerCase().includes('dutyfree'))) {
-        // Swap for Marketplace Mini App
         buttonObj = { text: label, web_app: { url: MARKETPLACE_MINI_APP_URL } };
       } else if (RESERVATIONS_MINI_APP_URL && url.toLowerCase().includes('reservations')) {
-        // Swap for Reservations Mini App
         buttonObj = { text: label, web_app: { url: RESERVATIONS_MINI_APP_URL } };
       } else {
         buttonObj = { text: label, url };
@@ -1389,6 +1398,11 @@ async function sendVFToTelegram(ctx, vfResp) {
   const userId = ctx.from.id;
   const traces = tracesOf(vfResp);
   let lastMsgOverall = lastBotMsgByUser.get(userId) || null;
+
+  if (DEBUG_STREAM) console.log(`[sendVF] Processing ${traces.length} traces for user ${userId}`);
+  if (traces.length === 0) {
+    console.warn(`[sendVF] WARNING: Received 0 traces from Voiceflow for user ${userId}`);
+  }
 
   // If we streamed an AI completion recently, we'll skip the duplicate AI "text" trace
   const comp = completionStateByUser.get(userId);
