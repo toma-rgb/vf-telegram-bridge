@@ -694,7 +694,7 @@
             },
             body_therapies: {
                 name: 'Body Therapies',
-                image: 'https://images.unsplash.com/photo-1560398991-f8e7bb1d52b1?w=800',
+                image: 'https://images.unsplash.com/photo-1544161513-2cdb-4c4f-c3e8-e352c15c7dbe?w=800',
                 services: [
                     {
                         id: 'sea-salt-scrub',
@@ -955,7 +955,8 @@
                     return;
                 }
 
-                if (!/^\d{4}$/.test(roomNumber)) {
+                const roomNum = roomNumber.trim();
+                if (!/^\d{4}$/.test(roomNum) || roomNum.length !== 4) {
                     if (tg?.showAlert) {
                         tg.showAlert('Room number must be exactly 4 digits');
                     } else {
@@ -1064,9 +1065,9 @@
                                 <div className="header-subtitle">GOLDEN HORIZON</div>
                                 <h1 className="header-title">Spa & Wellness</h1>
                                 <div className="header-tagline">Your sanctuary at sea</div>
-                                {telegramUserName && (
+                                {telegramUser && (
                                     <div style={{ marginTop: '12px', fontSize: '0.9rem', opacity: 0.8 }}>
-                                        Welcome, {telegramUserName}
+                                        Welcome, {telegramUser.first_name}
                                     </div>
                                 )}
                             </div>
@@ -1271,28 +1272,31 @@
                                     </div>
 
                                     <span className="selector-label">SELECT DATE</span>
-                                    <select
+                                    <input
+                                        type="date"
                                         className="form-input"
                                         value={date}
+                                        min={getNext14Days()[0]}
+                                        max={getNext14Days()[13]}
                                         onChange={(e) => setDate(e.target.value)}
-                                    >
-                                        {getNext14Days().map(d => (
-                                            <option key={d} value={d}>{formatDate(d)}</option>
-                                        ))}
-                                    </select>
+                                        style={{
+                                            colorScheme: 'dark',
+                                            cursor: 'pointer'
+                                        }}
+                                    />
 
                                     <span className="selector-label">SELECT TIME</span>
-                                    <div className="time-slots">
+                                    <select
+                                        className="form-input"
+                                        value={time}
+                                        onChange={(e) => { haptic('light'); setTime(e.target.value); }}
+                                        style={{ cursor: 'pointer' }}
+                                    >
+                                        <option value="">Choose a time slot...</option>
                                         {generateTimeSlots().map(slot => (
-                                            <div
-                                                key={slot}
-                                                className={`time-slot ${time === slot ? 'selected' : ''}`}
-                                                onClick={() => { haptic('light'); setTime(slot); }}
-                                            >
-                                                {slot}
-                                            </div>
+                                            <option key={slot} value={slot}>{slot}</option>
                                         ))}
-                                    </div>
+                                    </select>
 
                                     <span className="selector-label">GUEST INFORMATION</span>
                                     <input
