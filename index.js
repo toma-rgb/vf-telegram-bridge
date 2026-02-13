@@ -68,7 +68,7 @@ console.log(
 console.log(`[system] CALENDLY_MINI_APP_URL: ${CALENDLY_MINI_APP_URL ? '✅ SET' : '⚠️ MISSING'}`);
 console.log(`[system] MARKETPLACE_MINI_APP_URL: ${MARKETPLACE_MINI_APP_URL ? '✅ SET' : '⚠️ MISSING'}`);
 console.log(`[system] RESERVATIONS_MINI_APP_URL: ${RESERVATIONS_MINI_APP_URL ? '✅ SET' : '⚠️ MISSING'}`);
-console.log('🚀 BRIDGE VERSION: PROFESSIONAL FORMATTING RESTORED (Commit 33b)');
+console.log('🚀 BRIDGE VERSION: AI BUTTON DETECTION FIXED (Commit 34b)');
 
 // =====================
 // HTTP (keep-alive)
@@ -359,8 +359,8 @@ function slateToText(slate) {
 }
 
 function textOfTrace(t) {
-  // Prefer payload.message for AI + non-AI text
-  return t?.payload?.message ?? slateToText(t?.payload?.slate) ?? '';
+  // Prefer payload.message, then payload.content (completions), then slate
+  return t?.payload?.message ?? t?.payload?.content ?? slateToText(t?.payload?.slate) ?? '';
 }
 
 // =====================
@@ -1479,6 +1479,19 @@ async function sendVFToTelegram(ctx, vfResp) {
   // --- PRE-SCAN ALL TRACES FOR SYNTHETIC BUTTONS AND THE OVERALL CALENDLY URL ---
   const responseSyntheticButtons = [];
   let overallCalendlyUrl = null;
+
+  // [Commit 34b] SCAN AI COMPLETION FIRST (if active or recent)
+  // This ensures "Book Now" buttons appear for AI-generated text too.
+  if (comp?.accumulated?.trim()) {
+    const syn = getSyntheticButtons(comp.accumulated, 'pre-scan-ai');
+    for (const s of syn) {
+      if (!responseSyntheticButtons.some(b => b.name === s.name)) responseSyntheticButtons.push(s);
+      if (s.name && s.name.includes('Book Now')) {
+        const url = extractUrlFromButton(s);
+        if (url) overallCalendlyUrl = url;
+      }
+    }
+  }
 
   for (const t of traces) {
     if (t.type === 'text') {
