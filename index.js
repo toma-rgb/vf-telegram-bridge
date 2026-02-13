@@ -2065,7 +2065,7 @@ bot.on(
       }
 
       // Inform the user what we heard (as requested: "sent as a text")
-      await ctx.reply(`< i > " ${text} "</i > `, { parse_mode: 'HTML' });
+      await ctx.reply(`<i>"${esc(text)}"</i>`, { parse_mode: 'HTML' });
 
       const traces = await interactVoiceflow(ctx, userId, text);
       await sendVFToTelegram(ctx, traces);
