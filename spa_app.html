@@ -945,26 +945,7 @@
             };
 
             const handleConfirmBooking = () => {
-                // Validation
-                if (!guestName.trim()) {
-                    if (tg?.showAlert) {
-                        tg.showAlert('Please enter your name');
-                    } else {
-                        alert('Please enter your name');
-                    }
-                    return;
-                }
-
-                // Room number validation removed - accept any input
-
-                if (!time) {
-                    if (tg?.showAlert) {
-                        tg.showAlert('Please select a time slot');
-                    } else {
-                        alert('Please select a time slot');
-                    }
-                    return;
-                }
+                // No validation - this is a demo, let it succeed!
 
                 if (tg?.HapticFeedback) {
                     tg.HapticFeedback.notificationOccurred('success');
