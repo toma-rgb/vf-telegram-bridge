@@ -68,7 +68,7 @@ console.log(
 console.log(`[system] CALENDLY_MINI_APP_URL: ${CALENDLY_MINI_APP_URL ? '✅ SET' : '⚠️ MISSING'}`);
 console.log(`[system] MARKETPLACE_MINI_APP_URL: ${MARKETPLACE_MINI_APP_URL ? '✅ SET' : '⚠️ MISSING'}`);
 console.log(`[system] RESERVATIONS_MINI_APP_URL: ${RESERVATIONS_MINI_APP_URL ? '✅ SET' : '⚠️ MISSING'}`);
-console.log('🚀 BRIDGE VERSION: STRICT TURN-SCOPING + USER PROMPT (Commit 40b)');
+console.log('🚀 BRIDGE VERSION: SCOPED BOOKING MESSAGE (Commit 41b)');
 
 // =====================
 // HTTP (keep-alive)
@@ -1148,7 +1148,17 @@ function tracesOf(vf) {
 
 async function sendChoiceAsNewMessage(ctx, inlineKeyboard) {
   if (!inlineKeyboard?.length) return null;
-  const msg = await ctx.reply('Use the "Book Now" button to complete the booking:', { reply_markup: { inline_keyboard: inlineKeyboard } });
+
+  // Check if any button contains "Book Now" to determine the appropriate message
+  const hasBookNowButton = inlineKeyboard.some(row =>
+    row.some(btn => btn.text && btn.text.includes('Book Now'))
+  );
+
+  const message = hasBookNowButton
+    ? 'Use the "Book Now" button to complete the booking:'
+    : 'Select an option:';
+
+  const msg = await ctx.reply(message, { reply_markup: { inline_keyboard: inlineKeyboard } });
   if (msg) lastBotMsgByUser.set(ctx.from.id, { chatId: msg.chat.id, message_id: msg.message_id, keyboard: 'choice' });
   return msg;
 }
