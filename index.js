@@ -68,7 +68,7 @@ console.log(
 console.log(`[system] CALENDLY_MINI_APP_URL: ${CALENDLY_MINI_APP_URL ? '✅ SET' : '⚠️ MISSING'}`);
 console.log(`[system] MARKETPLACE_MINI_APP_URL: ${MARKETPLACE_MINI_APP_URL ? '✅ SET' : '⚠️ MISSING'}`);
 console.log(`[system] RESERVATIONS_MINI_APP_URL: ${RESERVATIONS_MINI_APP_URL ? '✅ SET' : '⚠️ MISSING'}`);
-console.log('🚀 BRIDGE VERSION: EMERGENCY REVERT & BUTTON FIX (Commit 36b)');
+console.log('🚀 BRIDGE VERSION: RELIABLE AI BUTTONS (Commit 37b)');
 
 // =====================
 // HTTP (keep-alive)
@@ -1295,9 +1295,12 @@ function getProcessedTextForButtons(raw, calendlyUrl) {
   text = text.replace(/\[\]\(\)/g, '').replace(/<a[^>]*><\/a>/gi, '').replace(/[ \t]+$/gm, '').trim();
 
   // 5. Duplicate/Prompt handling
-  const PROMPT = 'Use the "Book Now" button to complete the booking.';
+  const PROMPT = 'Press the Book Now button to book it';
   if (!text.trim() && calendlyUrl) {
     text = PROMPT;
+  } else if (text.trim() && calendlyUrl && !text.includes(PROMPT)) {
+    // Append it if not present, with a double newline for spacing
+    text = text.trim() + '\n\n' + PROMPT;
   }
 
   return text;
@@ -1480,10 +1483,10 @@ async function sendVFToTelegram(ctx, vfResp) {
   const responseSyntheticButtons = [];
   let overallCalendlyUrl = null;
 
-  // [Commit 34b] SCAN AI COMPLETION FIRST (only if active or from THIS specific response)
+  // [Commit 34b/37b] SCAN AI COMPLETION FIRST
   // This ensures "Book Now" buttons appear for AI-generated text.
-  // We check if the completion message was actually generated in this turn.
-  if (comp?.accumulated?.trim() && comp.active) {
+  // We check the accumulated buffer from the completion stream.
+  if (comp?.accumulated?.trim()) {
     const syn = getSyntheticButtons(comp.accumulated, 'pre-scan-ai');
     for (const s of syn) {
       if (!responseSyntheticButtons.some(b => b.name === s.name)) responseSyntheticButtons.push(s);
@@ -1770,6 +1773,15 @@ async function sendVFToTelegram(ctx, vfResp) {
       console.error(`[sendVF] ERROR processing trace ${i + 1}:`, err);
     }
   }
+
+  // [Commit 37b] CRITICAL STATE RESET: Clear the AI buffer after it has been used/processed
+  // This prevents the "Book Now" buttons from leaking into unrelated subsequent messages.
+  if (comp) {
+    comp.accumulated = '';
+    completionStateByUser.set(userId, comp);
+  }
+
+  return lastMsgOverall;
 }
 
 // =====================
@@ -1782,7 +1794,7 @@ function localDayStamp(tsMs) {
   const y = d.getUTCFullYear();
   const m = String(d.getUTCMonth() + 1).padStart(2, '0');
   const day = String(d.getUTCDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
+  return `${y} -${m} -${day} `;
 }
 
 function shouldResetConversationFor(userId) {
@@ -2003,7 +2015,7 @@ bot.on(
     }
 
     try {
-      console.log(`[stt] processing voice from ${userId}, file_id: ${voice.file_id}`);
+      console.log(`[stt] processing voice from ${userId}, file_id: ${voice.file_id} `);
 
       const fileLink = await ctx.telegram.getFileLink(voice.file_id);
       const url = fileLink.toString();
@@ -2020,7 +2032,7 @@ bot.on(
 
       const sttRes = await api.post('https://api.openai.com/v1/audio/transcriptions', formData, {
         headers: {
-          'Authorization': `Bearer ${OPENAI_API_KEY}`,
+          'Authorization': `Bearer ${OPENAI_API_KEY} `,
           ...formData.getHeaders()
         }
       });
@@ -2034,7 +2046,7 @@ bot.on(
       }
 
       // Inform the user what we heard (as requested: "sent as a text")
-      await ctx.reply(`<i>" ${text} "</i>`, { parse_mode: 'HTML' });
+      await ctx.reply(`< i > " ${text} "</i > `, { parse_mode: 'HTML' });
 
       const traces = await interactVoiceflow(ctx, userId, text);
       await sendVFToTelegram(ctx, traces);
@@ -2042,7 +2054,7 @@ bot.on(
     } catch (err) {
       const errDetail = err?.response?.data?.error?.message || err?.message || String(err);
       console.error('❌ STT error:', errDetail, err?.response?.data || '');
-      await ctx.reply(`Sorry, I had trouble processing your voice message: ${errDetail}`);
+      await ctx.reply(`Sorry, I had trouble processing your voice message: ${errDetail} `);
     } finally {
       stop();
     }
@@ -2082,7 +2094,7 @@ async function startBot(retries = 5) {
     console.log('✅ Telegram ↔ Voiceflow bridge running (STREAMING)');
   } catch (err) {
     if (err.message && err.message.includes('409') && retries > 0) {
-      console.warn(`⚠️ 409 Conflict detected. Another instance is likely running. Retrying in 5s... (${retries} left)`);
+      console.warn(`⚠️ 409 Conflict detected.Another instance is likely running.Retrying in 5s... (${retries} left)`);
       setTimeout(() => startBot(retries - 1), 5000);
     } else {
       console.error('❌ Failed to launch bot:', err);
