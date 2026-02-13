@@ -1295,12 +1295,9 @@ function getProcessedTextForButtons(raw, calendlyUrl) {
   text = text.replace(/\[\]\(\)/g, '').replace(/<a[^>]*><\/a>/gi, '').replace(/[ \t]+$/gm, '').trim();
 
   // 5. Duplicate/Prompt handling
-  const PROMPT = 'Press the Book Now button to complete the booking';
+  const PROMPT = 'Use the \"Book Now\" button to complete the booking.';
   if (!text.trim() && calendlyUrl) {
     text = PROMPT;
-  } else if (text.trim() && calendlyUrl && !text.includes(PROMPT)) {
-    // Append it if not present, with a double newline for spacing
-    text = text.trim() + '\n\n' + PROMPT;
   }
 
   return text;
