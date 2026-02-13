@@ -68,7 +68,7 @@ console.log(
 console.log(`[system] CALENDLY_MINI_APP_URL: ${CALENDLY_MINI_APP_URL ? '✅ SET' : '⚠️ MISSING'}`);
 console.log(`[system] MARKETPLACE_MINI_APP_URL: ${MARKETPLACE_MINI_APP_URL ? '✅ SET' : '⚠️ MISSING'}`);
 console.log(`[system] RESERVATIONS_MINI_APP_URL: ${RESERVATIONS_MINI_APP_URL ? '✅ SET' : '⚠️ MISSING'}`);
-console.log('🚀 BRIDGE VERSION: STRICT TURN-SCOPING (Commit 38b)');
+console.log('🚀 BRIDGE VERSION: USER CHOICE PROMPT (Commit 39b)');
 
 // =====================
 // HTTP (keep-alive)
@@ -1148,7 +1148,7 @@ function tracesOf(vf) {
 
 async function sendChoiceAsNewMessage(ctx, inlineKeyboard) {
   if (!inlineKeyboard?.length) return null;
-  const msg = await ctx.reply('Select an option:', { reply_markup: { inline_keyboard: inlineKeyboard } });
+  const msg = await ctx.reply('Use the "Book Now" button to complete the booking:', { reply_markup: { inline_keyboard: inlineKeyboard } });
   if (msg) lastBotMsgByUser.set(ctx.from.id, { chatId: msg.chat.id, message_id: msg.message_id, keyboard: 'choice' });
   return msg;
 }
