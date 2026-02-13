@@ -8,7 +8,7 @@ import https from 'https';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import os from 'os';
+
 import { Telegraf } from 'telegraf';
 import { randomUUID } from 'crypto';
 import OpenAI from 'openai';
@@ -1157,7 +1157,7 @@ async function sendChoiceAsNewMessage(ctx, inlineKeyboard) {
 
   const message = hasBookNowButton
     ? 'Use the "Book Now" button to complete the booking:'
-    : '\u200B'; // Zero-width space for cleaner UI
+    : 'Select an option:';
 
   const msg = await ctx.reply(message, { reply_markup: { inline_keyboard: inlineKeyboard } });
   if (msg) lastBotMsgByUser.set(ctx.from.id, { chatId: msg.chat.id, message_id: msg.message_id, keyboard: 'choice' });
@@ -1167,8 +1167,12 @@ async function sendChoiceAsNewMessage(ctx, inlineKeyboard) {
 async function attachChoiceKeyboard(ctx, target, inlineKeyboard) {
   if (!inlineKeyboard?.length) return null;
 
-  // Check if target exists and if we can edit it
-  // (Previously we skipped 'card' types here, but now we allow attaching buttons to them)
+  // If target is a CARD keyboard, don't overwrite; send separate choice message
+  if (target?.keyboard === 'card') {
+    const newMsg = await sendChoiceAsNewMessage(ctx, inlineKeyboard);
+    if (newMsg) return { chatId: newMsg.chat.id, message_id: newMsg.message_id, keyboard: 'choice' };
+    return null;
+  }
 
 
   // Otherwise, overwrite in place (even if previous was 'choice')
@@ -2038,22 +2042,20 @@ bot.on(
       const buffer = Buffer.from(response.data);
       console.log(`[stt] downloaded ${buffer.length} bytes`);
 
-      // Write to temp file for OpenAI SDK
-      const tempFilePath = path.join(os.tmpdir(), `voice_${userId}_${Date.now()}.ogg`);
-      fs.writeFileSync(tempFilePath, buffer);
+      console.log('[stt] sending to OpenAI Whisper API via axios...');
 
-      console.log('[stt] sending to OpenAI Whisper API...');
+      const formData = new FormData();
+      formData.append('file', buffer, { filename: `voice_${userId}.ogg`, contentType: 'audio/ogg' });
+      formData.append('model', 'whisper-1');
 
-      const sttRes = await openai.audio.transcriptions.create({
-        file: fs.createReadStream(tempFilePath),
-        model: 'whisper-1',
+      const sttRes = await api.post('https://api.openai.com/v1/audio/transcriptions', formData, {
+        headers: {
+          'Authorization': `Bearer ${OPENAI_API_KEY}`,
+          ...formData.getHeaders()
+        }
       });
 
-      // Cleanup temp file
-      try { fs.unlinkSync(tempFilePath); } catch (e) { /* ignore */ }
-
-      const text = sttRes.text;
-
+      const text = sttRes.data.text;
       console.log(`[stt] success: "${text}"`);
 
 
