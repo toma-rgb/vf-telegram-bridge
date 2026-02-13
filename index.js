@@ -68,7 +68,7 @@ console.log(
 console.log(`[system] CALENDLY_MINI_APP_URL: ${CALENDLY_MINI_APP_URL ? '✅ SET' : '⚠️ MISSING'}`);
 console.log(`[system] MARKETPLACE_MINI_APP_URL: ${MARKETPLACE_MINI_APP_URL ? '✅ SET' : '⚠️ MISSING'}`);
 console.log(`[system] RESERVATIONS_MINI_APP_URL: ${RESERVATIONS_MINI_APP_URL ? '✅ SET' : '⚠️ MISSING'}`);
-console.log('🚀 BRIDGE VERSION: NUCLEAR IFRAME SUPPRESSION (Commit 31b)');
+console.log('🚀 BRIDGE VERSION: RESTORED TEXT FORMATTING (Commit 32b)');
 
 // =====================
 // HTTP (keep-alive)
@@ -246,16 +246,18 @@ function segmentContent(text) {
   let lastIndex = 0;
   for (const m of matches) {
     if (m.index > lastIndex) {
-      const txt = text.substring(lastIndex, m.index).trim();
-      if (txt) segments.push({ type: 'text', value: txt });
+      // PRESERVE VERTICAL WHITESPACE: Do not use .trim() here, just normalize trailing tabs/spaces
+      const txt = text.substring(lastIndex, m.index).replace(/[ \t]+$/gm, '');
+      if (txt.trim()) segments.push({ type: 'text', value: txt });
     }
     segments.push({ type: 'image', value: m.url });
     lastIndex = m.index + m.length;
   }
 
   if (lastIndex < text.length) {
-    const txt = text.substring(lastIndex).trim();
-    if (txt) segments.push({ type: 'text', value: txt });
+    // PRESERVE VERTICAL WHITESPACE: Do not use .trim() here
+    const txt = text.substring(lastIndex).replace(/[ \t]+$/gm, '');
+    if (txt.trim()) segments.push({ type: 'text', value: txt });
   }
 
   return segments;
@@ -1257,7 +1259,6 @@ function getProcessedTextForButtons(raw, calendlyUrl) {
 
   // 1. NUCLEAR SUPPRESSION: If we have a Calendly link OR an iframe start,
   // we truncate EVERYTHING from the first "<iframe" to the end.
-  // This prevents partial HTML leaking during streaming.
   const iframeStartIdx = text.toLowerCase().indexOf('<iframe');
 
   if (iframeStartIdx !== -1 && (calendlyUrl || text.toLowerCase().includes('calendly.com'))) {
@@ -1267,13 +1268,13 @@ function getProcessedTextForButtons(raw, calendlyUrl) {
 
   // 2. Final safety pass for any remaining partial tags
   const anyCalendlyTagRe = /<[^>]*calendly[^>]*>/gi;
-  text = text.replace(anyCalendlyTagRe, '');
+  text = text.replace(anyCalendlyTagRe, ' '); // Use space to prevent squishing words
 
   // 3. Clean up direct URL leftovers
   if (calendlyUrl) {
     const escapedUrl = calendlyUrl.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const urlRe = new RegExp(escapedUrl, 'gi');
-    text = text.replace(urlRe, '');
+    text = text.replace(urlRe, ' ');
   }
 
   // 4. SUPPRESS BOOKING PROMPTS
@@ -1282,14 +1283,15 @@ function getProcessedTextForButtons(raw, calendlyUrl) {
     /use the calendar below[^.]*\./gi,
     /booking calendar is ready below/gi
   ];
-  for (const p of promptsToRemove) text = text.replace(p, '');
+  for (const p of promptsToRemove) text = text.replace(p, ' ');
 
   // Final cleanup of whitespace and empty artifacts
-  text = text.replace(/\[\]\(\)/g, '').replace(/<a[^>]*><\/a>/gi, '').replace(/\n\s*\n/g, '\n').trim();
+  // DO NOT replace double newlines with single ones. Preserve the paragraph breaks.
+  text = text.replace(/\[\]\(\)/g, '').replace(/<a[^>]*><\/a>/gi, '').replace(/[ \t]+$/gm, '').trim();
 
   // 5. Duplicate/Prompt handling
   const PROMPT = 'Use the "Book Now" button to complete the booking.';
-  if (!text && calendlyUrl) {
+  if (!text.trim() && calendlyUrl) {
     text = PROMPT;
   }
 
