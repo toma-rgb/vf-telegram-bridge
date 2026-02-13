@@ -1,0 +1,1427 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport"
+        content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>Golden Horizon Spa & Wellness</title>
+
+    <!-- Telegram Mini App SDK -->
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+
+    <!-- React and ReactDOM from CDN -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+
+    <!-- Babel Standalone for JSX -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <!-- Google Fonts -->
+    <link
+        href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=Inter:wght@300;400;500;600&display=swap"
+        rel="stylesheet">
+
+    <style>
+        :root {
+            --spa-teal: #2D5F5D;
+            --spa-gold: #C5A880;
+            --spa-cream: #F5F1E8;
+            --spa-sage: #8B9D83;
+            --spa-navy: #1A2F3A;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: linear-gradient(135deg, #2D5F5D 0%, #1A2F3A 100%);
+            color: white;
+            min-height: 100vh;
+            -webkit-font-smoothing: antialiased;
+            overflow-x: hidden;
+        }
+
+        h1,
+        h2,
+        h3,
+        h4 {
+            font-family: 'Playfair Display', serif;
+        }
+
+        /* Telegram Warning */
+        .telegram-warning {
+            background: rgba(255, 193, 7, 0.95);
+            color: #333;
+            padding: 20px;
+            text-align: center;
+            font-weight: 600;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 9999;
+        }
+
+        /* Header */
+        .header {
+            padding: 30px 20px 20px;
+            text-align: center;
+            background: linear-gradient(to bottom, rgba(197, 168, 128, 0.15), transparent);
+        }
+
+        .header-subtitle {
+            font-size: 0.75rem;
+            letter-spacing: 0.3em;
+            text-transform: uppercase;
+            color: var(--spa-gold);
+            margin-bottom: 8px;
+            font-weight: 500;
+        }
+
+        .header-title {
+            font-size: 2.2rem;
+            margin-bottom: 8px;
+            letter-spacing: -0.02em;
+        }
+
+        .header-tagline {
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 0.95rem;
+            font-style: italic;
+        }
+
+        /* Promo Banner */
+        .promo-banner {
+            background: linear-gradient(90deg, var(--spa-gold), #D4B896);
+            color: var(--spa-navy);
+            padding: 12px 20px;
+            text-align: center;
+            font-size: 0.85rem;
+            font-weight: 600;
+            margin-bottom: 10px;
+        }
+
+        /* Category Grid */
+        .category-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 16px;
+            padding: 20px;
+        }
+
+        .category-card {
+            position: relative;
+            border-radius: 16px;
+            overflow: hidden;
+            height: 160px;
+            cursor: pointer;
+            transition: transform 0.3s ease;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+        }
+
+        .category-card:active {
+            transform: scale(0.97);
+        }
+
+        .category-img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .category-overlay {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            padding: 20px 15px;
+            background: linear-gradient(to top, rgba(0, 0, 0, 0.8), transparent);
+            text-align: center;
+        }
+
+        .category-name {
+            font-size: 1.1rem;
+            font-weight: 600;
+        }
+
+        /* Modal Overlay */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.85);
+            backdrop-filter: blur(10px);
+            z-index: 1000;
+            display: flex;
+            align-items: flex-end;
+            animation: fadeIn 0.3s ease;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+            }
+
+            to {
+                opacity: 1;
+            }
+        }
+
+        .modal-content {
+            background: linear-gradient(135deg, #2D5F5D 0%, #1A2F3A 100%);
+            width: 100%;
+            max-height: 90vh;
+            border-radius: 20px 20px 0 0;
+            overflow-y: auto;
+            animation: slideUp 0.3s ease;
+        }
+
+        @keyframes slideUp {
+            from {
+                transform: translateY(100%);
+            }
+
+            to {
+                transform: translateY(0);
+            }
+        }
+
+        .modal-header {
+            position: sticky;
+            top: 0;
+            background: rgba(26, 47, 58, 0.95);
+            backdrop-filter: blur(20px);
+            padding: 15px 20px;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            z-index: 100;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+        }
+
+        .back-button {
+            background: rgba(255, 255, 255, 0.08);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            color: white;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            font-size: 1.2rem;
+        }
+
+        .modal-title {
+            font-size: 1.3rem;
+            flex: 1;
+        }
+
+        /* Service List */
+        .service-list {
+            padding: 20px;
+        }
+
+        .service-card {
+            background: rgba(255, 255, 255, 0.08);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            border-radius: 16px;
+            padding: 20px;
+            margin-bottom: 16px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .service-card:active {
+            transform: scale(0.98);
+            background: rgba(255, 255, 255, 0.12);
+        }
+
+        .service-name {
+            font-size: 1.2rem;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+
+        .service-description {
+            font-size: 0.85rem;
+            color: rgba(255, 255, 255, 0.7);
+            line-height: 1.5;
+            margin-bottom: 12px;
+        }
+
+        .duration-chips {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .duration-chip {
+            background: rgba(197, 168, 128, 0.2);
+            border: 1px solid var(--spa-gold);
+            color: var(--spa-gold);
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            font-weight: 500;
+        }
+
+        /* Service Detail in Modal */
+        .service-detail {
+            padding: 20px;
+        }
+
+        .detail-hero {
+            width: 100%;
+            height: 200px;
+            object-fit: cover;
+            border-radius: 16px;
+            margin-bottom: 20px;
+        }
+
+        .detail-title {
+            font-size: 1.8rem;
+            margin-bottom: 15px;
+        }
+
+        .detail-description {
+            color: rgba(255, 255, 255, 0.8);
+            line-height: 1.7;
+            margin-bottom: 30px;
+        }
+
+        .duration-selector {
+            margin-bottom: 30px;
+        }
+
+        .selector-label {
+            font-size: 0.75rem;
+            letter-spacing: 0.2em;
+            text-transform: uppercase;
+            color: var(--spa-gold);
+            margin-bottom: 12px;
+            display: block;
+        }
+
+        .duration-options {
+            display: flex;
+            gap: 12px;
+        }
+
+        .duration-option {
+            flex: 1;
+            background: rgba(255, 255, 255, 0.08);
+            border: 2px solid rgba(255, 255, 255, 0.15);
+            color: white;
+            padding: 16px;
+            border-radius: 12px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .duration-option.selected {
+            border-color: var(--spa-gold);
+            background: rgba(197, 168, 128, 0.15);
+        }
+
+        .duration-minutes {
+            font-size: 1.1rem;
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+
+        .duration-price {
+            font-size: 1.3rem;
+            color: var(--spa-gold);
+            font-weight: 700;
+        }
+
+        .price-info {
+            background: rgba(255, 255, 255, 0.08);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+
+        .price-row {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+            font-size: 0.95rem;
+        }
+
+        .price-total {
+            font-size: 1.4rem;
+            font-weight: 700;
+            color: var(--spa-gold);
+            padding-top: 12px;
+            margin-top: 12px;
+            border-top: 1px solid rgba(255, 255, 255, 0.15);
+        }
+
+        .gratuity-note {
+            font-size: 0.75rem;
+            color: rgba(255, 255, 255, 0.6);
+            margin-top: 8px;
+        }
+
+        /* Booking Form */
+        .booking-form {
+            padding: 20px;
+        }
+
+        .form-input {
+            width: 100%;
+            background: rgba(255, 255, 255, 0.08);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            color: white;
+            padding: 16px;
+            border-radius: 12px;
+            font-size: 1rem;
+            font-family: 'Inter', sans-serif;
+            margin-bottom: 16px;
+            outline: none;
+        }
+
+        .form-input:focus {
+            border-color: var(--spa-gold);
+        }
+
+        .form-input::placeholder {
+            color: rgba(255, 255, 255, 0.4);
+        }
+
+        .time-slots {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 8px;
+            margin-bottom: 20px;
+        }
+
+        .time-slot {
+            background: rgba(255, 255, 255, 0.08);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            color: white;
+            padding: 12px 8px;
+            border-radius: 8px;
+            text-align: center;
+            cursor: pointer;
+            font-size: 0.85rem;
+            transition: all 0.3s ease;
+        }
+
+        .time-slot.selected {
+            background: rgba(197, 168, 128, 0.2);
+            border-color: var(--spa-gold);
+            color: var(--spa-gold);
+        }
+
+        /* Buttons */
+        .btn-primary {
+            width: 100%;
+            background: var(--spa-gold);
+            color: var(--spa-navy);
+            border: none;
+            padding: 18px;
+            border-radius: 12px;
+            font-size: 1.1rem;
+            font-weight: 700;
+            cursor: pointer;
+            font-family: 'Inter', sans-serif;
+            transition: all 0.3s ease;
+        }
+
+        .btn-primary:active {
+            transform: scale(0.98);
+            background: #D4B896;
+        }
+
+        .btn-outline {
+            background: transparent;
+            border: 2px solid var(--spa-gold);
+            color: var(--spa-gold);
+        }
+
+        /* Success Screen */
+        .success-screen {
+            padding: 40px 20px;
+            text-align: center;
+        }
+
+        .success-icon {
+            font-size: 4rem;
+            margin-bottom: 20px;
+            animation: scaleIn 0.5s ease;
+        }
+
+        @keyframes scaleIn {
+            from {
+                transform: scale(0);
+            }
+
+            to {
+                transform: scale(1);
+            }
+        }
+
+        .success-title {
+            font-size: 2rem;
+            margin-bottom: 12px;
+        }
+
+        .success-subtitle {
+            color: rgba(255, 255, 255, 0.7);
+            margin-bottom: 30px;
+        }
+
+        .booking-details {
+            background: rgba(255, 255, 255, 0.08);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            border-radius: 16px;
+            padding: 24px;
+            margin-bottom: 30px;
+            text-align: left;
+        }
+
+        .booking-ref {
+            font-size: 0.75rem;
+            letter-spacing: 0.2em;
+            text-transform: uppercase;
+            color: var(--spa-gold);
+            margin-bottom: 16px;
+        }
+
+        .booking-info-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 10px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .booking-info-row:last-child {
+            border-bottom: none;
+        }
+
+        .info-label {
+            color: rgba(255, 255, 255, 0.6);
+            font-size: 0.9rem;
+        }
+
+        .info-value {
+            font-weight: 600;
+        }
+
+        .policy-note {
+            font-size: 0.75rem;
+            color: rgba(255, 255, 255, 0.5);
+            margin-top: 20px;
+            line-height: 1.5;
+        }
+
+        /* Bottom Nav */
+        .nav-bar {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: rgba(26, 47, 58, 0.95);
+            backdrop-filter: blur(20px);
+            border-top: 1px solid rgba(255, 255, 255, 0.15);
+            display: flex;
+            padding: 12px 20px;
+            gap: 10px;
+            z-index: 100;
+        }
+
+        .nav-button {
+            flex: 1;
+            background: transparent;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            color: rgba(255, 255, 255, 0.6);
+            padding: 12px;
+            border-radius: 10px;
+            font-size: 0.85rem;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .nav-button.active {
+            background: rgba(197, 168, 128, 0.2);
+            border-color: var(--spa-gold);
+            color: var(--spa-gold);
+        }
+
+        /* My Bookings */
+        .bookings-list {
+            padding: 20px;
+        }
+
+        .booking-item {
+            background: rgba(255, 255, 255, 0.08);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            border-radius: 16px;
+            padding: 20px;
+            margin-bottom: 16px;
+        }
+
+        .booking-service-name {
+            font-size: 1.2rem;
+            font-weight: 600;
+            margin-bottom: 12px;
+        }
+
+        .booking-info-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            margin-top: 12px;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: rgba(255, 255, 255, 0.5);
+        }
+    </style>
+</head>
+
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect } = React;
+
+        // Initialize Telegram WebApp
+        const tg = window.Telegram?.WebApp;
+        const isInTelegram = !!tg?.initData;
+
+        if (tg) {
+            tg.ready();
+            tg.expand();
+            tg.enableClosingConfirmation();
+
+            // Apply theme
+            if (tg.themeParams?.bg_color) {
+                document.body.style.background = tg.themeParams.bg_color;
+            }
+        }
+
+        // Get Telegram user data
+        const telegramUser = tg?.initDataUnsafe?.user;
+        const telegramUserId = telegramUser?.id;
+        const telegramUserName = telegramUser ? `${telegramUser.first_name} ${telegramUser.last_name || ''}`.trim() : '';
+
+        // Haptic feedback helper
+        const haptic = (type = 'medium') => {
+            if (tg?.HapticFeedback) {
+                tg.HapticFeedback.impactOccurred(type);
+            }
+        };
+
+        // Service Data
+        const SERVICES_DATA = {
+            massages: {
+                name: 'Massages',
+                image: 'https://images.unsplash.com/photo-1544161515-4ab6ce6db874?w=800',
+                services: [
+                    {
+                        id: 'swedish',
+                        name: 'Swedish Massage',
+                        description: 'Classic relaxation massage using gentle flowing strokes to ease tension and promote deep relaxation.',
+                        image: 'https://images.unsplash.com/photo-1596178060671-7a80dc8059ea?w=800',
+                        durations: [{ minutes: 50, price: 129 }, { minutes: 80, price: 179 }]
+                    },
+                    {
+                        id: 'deep-tissue',
+                        name: 'Deep Tissue Massage',
+                        description: 'Therapeutic massage targeting deeper muscle layers to release chronic tension and knots.',
+                        image: 'https://images.unsplash.com/photo-1519823551278-64ac92734fb1?w=800',
+                        durations: [{ minutes: 50, price: 149 }, { minutes: 80, price: 199 }]
+                    },
+                    {
+                        id: 'hot-stone',
+                        name: 'Hot Stone Massage',
+                        description: 'Heated basalt stones combined with Swedish techniques melt away tension and stress.',
+                        image: 'https://images.unsplash.com/photo-1540555700478-4be289fbecef?w=800',
+                        durations: [{ minutes: 50, price: 159 }, { minutes: 80, price: 209 }]
+                    },
+                    {
+                        id: 'aromatherapy',
+                        name: 'Aromatherapy Massage',
+                        description: 'Luxurious massage with essential oils customized to your wellness needs.',
+                        image: 'https://images.unsplash.com/photo-1600334129128-685c5582fd35?w=800',
+                        durations: [{ minutes: 50, price: 139 }, { minutes: 80, price: 189 }]
+                    },
+                    {
+                        id: 'couples',
+                        name: 'Couples Massage',
+                        description: 'Share a relaxing experience in our private couples suite with two therapists.',
+                        image: 'https://images.unsplash.com/photo-1544161515-4ab6ce6db874?w=800',
+                        durations: [{ minutes: 50, price: 299 }, { minutes: 80, price: 389 }]
+                    }
+                ]
+            },
+            facials: {
+                name: 'Facials',
+                image: 'https://images.unsplash.com/photo-1570172619644-dfd03ed5d881?w=800',
+                services: [
+                    {
+                        id: 'hydrating',
+                        name: 'Hydrating Facial',
+                        description: 'Deeply moisturizing treatment to restore radiance and plumpness to dry, dehydrated skin.',
+                        image: 'https://images.unsplash.com/photo-1570172619644-dfd03ed5d881?w=800',
+                        durations: [{ minutes: 50, price: 129 }]
+                    },
+                    {
+                        id: 'anti-aging',
+                        name: 'Anti-Aging Facial',
+                        description: 'Advanced treatment targeting fine lines and wrinkles with powerful active ingredients.',
+                        image: 'https://images.unsplash.com/photo-1570172619644-dfd03ed5d881?w=800',
+                        durations: [{ minutes: 50, price: 159 }, { minutes: 80, price: 209 }]
+                    }
+                ]
+            },
+            body_therapies: {
+                name: 'Body Therapies',
+                image: 'https://images.unsplash.com/photo-1560398991-f8e7bb1d52b1?w=800',
+                services: [
+                    {
+                        id: 'sea-salt-scrub',
+                        name: 'Sea Salt Body Scrub',
+                        description: 'Exfoliating treatment using mineral-rich sea salts to reveal soft, glowing skin.',
+                        image: 'https://images.unsplash.com/photo-1560398991-f8e7bb1d52b1?w=800',
+                        durations: [{ minutes: 45, price: 109 }]
+                    },
+                    {
+                        id: 'algae-detox',
+                        name: 'Algae Detox Wrap',
+                        description: 'Purifying body wrap with marine algae to detoxify and firm the skin.',
+                        image: 'https://images.unsplash.com/photo-1560398991-f8e7bb1d52b1?w=800',
+                        durations: [{ minutes: 60, price: 149 }]
+                    }
+                ]
+            },
+            salon: {
+                name: 'Salon',
+                image: 'https://images.unsplash.com/photo-1562322140-8baeececf3df?w=800',
+                services: [
+                    {
+                        id: 'signature-blowout',
+                        name: 'Signature Blowout',
+                        description: 'Professional styling with premium products for a perfect finish.',
+                        image: 'https://images.unsplash.com/photo-1562322140-8baeececf3df?w=800',
+                        durations: [{ minutes: 45, price: 59 }, { minutes: 60, price: 79 }]
+                    },
+                    {
+                        id: 'cut-style',
+                        name: 'Cut & Style',
+                        description: 'Expert haircut consultation with precision cutting and styling.',
+                        image: 'https://images.unsplash.com/photo-1562322140-8baeececf3df?w=800',
+                        durations: [{ minutes: 45, price: 79 }, { minutes: 60, price: 99 }]
+                    },
+                    {
+                        id: 'barber-shave',
+                        name: 'Barber Shave & Shape',
+                        description: 'Traditional barbering with hot towels and premium grooming products.',
+                        image: 'https://images.unsplash.com/photo-1562322140-8baeececf3df?w=800',
+                        durations: [{ minutes: 45, price: 69 }]
+                    }
+                ]
+            },
+            nails: {
+                name: 'Nails',
+                image: 'https://images.unsplash.com/photo-1604654894610-df63bc536371?w=800',
+                services: [
+                    {
+                        id: 'classic-manicure',
+                        name: 'Classic Manicure',
+                        description: 'Essential nail care with shaping, cuticle work, and polish application.',
+                        image: 'https://images.unsplash.com/photo-1604654894610-df63bc536371?w=800',
+                        durations: [{ minutes: 30, price: 39 }]
+                    },
+                    {
+                        id: 'classic-pedicure',
+                        name: 'Classic Pedicure',
+                        description: 'Relaxing foot soak, exfoliation, massage, and polish for beautiful feet.',
+                        image: 'https://images.unsplash.com/photo-1604654894610-df63bc536371?w=800',
+                        durations: [{ minutes: 45, price: 59 }]
+                    },
+                    {
+                        id: 'gel-manicure',
+                        name: 'Gel Manicure',
+                        description: 'Long-lasting gel polish application with strengthening benefits.',
+                        image: 'https://images.unsplash.com/photo-1604654894610-df63bc536371?w=800',
+                        durations: [{ minutes: 45, price: 59 }]
+                    }
+                ]
+            },
+            thermal: {
+                name: 'Thermal Suite',
+                image: 'https://images.unsplash.com/photo-1544161515-4ab6ce6db874?w=800',
+                services: [
+                    {
+                        id: 'day-pass',
+                        name: 'Day Pass',
+                        description: 'Access to sauna, steam room, heated loungers, and relaxation areas.',
+                        image: 'https://images.unsplash.com/photo-1544161515-4ab6ce6db874?w=800',
+                        durations: [{ minutes: null, price: 39 }]
+                    },
+                    {
+                        id: 'voyage-pass',
+                        name: 'Voyage Pass',
+                        description: 'Unlimited access to all thermal facilities for the entire cruise.',
+                        image: 'https://images.unsplash.com/photo-1544161515-4ab6ce6db874?w=800',
+                        durations: [{ minutes: null, price: 149 }]
+                    }
+                ]
+            },
+            fitness: {
+                name: 'Fitness Studio',
+                image: 'https://images.unsplash.com/photo-1571019613454-1cb2f99b2d8b?w=800',
+                services: [
+                    {
+                        id: 'personal-training',
+                        name: 'Personal Training',
+                        description: 'One-on-one session with certified fitness trainer tailored to your goals.',
+                        image: 'https://images.unsplash.com/photo-1571019613454-1cb2f99b2d8b?w=800',
+                        durations: [{ minutes: 30, price: 45 }, { minutes: 50, price: 75 }]
+                    },
+                    {
+                        id: 'yoga-class',
+                        name: 'Yoga Class',
+                        description: 'Group yoga session for all levels in our ocean-view studio.',
+                        image: 'https://images.unsplash.com/photo-1571019613454-1cb2f99b2d8b?w=800',
+                        durations: [{ minutes: 60, price: 15 }]
+                    },
+                    {
+                        id: 'pilates-class',
+                        name: 'Pilates Class',
+                        description: 'Core-strengthening Pilates class suitable for all fitness levels.',
+                        image: 'https://images.unsplash.com/photo-1571019613454-1cb2f99b2d8b?w=800',
+                        durations: [{ minutes: 60, price: 15 }]
+                    },
+                    {
+                        id: 'hiit-class',
+                        name: 'HIIT Class',
+                        description: 'High-intensity interval training for maximum calorie burn and fitness gains.',
+                        image: 'https://images.unsplash.com/photo-1571019613454-1cb2f99b2d8b?w=800',
+                        durations: [{ minutes: 45, price: 12 }]
+                    }
+                ]
+            }
+        };
+
+        // Utilities
+        const generateBookingRef = () => 'SPA-' + Math.random().toString(36).substr(2, 6).toUpperCase();
+
+        const getStoredBookings = () => {
+            try {
+                const stored = localStorage.getItem('spaBookings');
+                return stored ? JSON.parse(stored) : [];
+            } catch (e) {
+                return [];
+            }
+        };
+
+        const saveBooking = (booking) => {
+            const bookings = getStoredBookings();
+            bookings.push(booking);
+            localStorage.setItem('spaBookings', JSON.stringify(bookings));
+        };
+
+        const generateTimeSlots = () => {
+            const slots = [];
+            for (let hour = 8; hour <= 20; hour++) {
+                for (let min = 0; min < 60; min += 30) {
+                    if (hour === 20 && min > 0) break;
+                    slots.push(`${hour.toString().padStart(2, '0')}:${min.toString().padStart(2, '0')}`);
+                }
+            }
+            return slots;
+        };
+
+        const formatDate = (dateStr) => {
+            const date = new Date(dateStr);
+            return date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+        };
+
+        const getNext14Days = () => {
+            const days = [];
+            const today = new Date();
+            for (let i = 0; i < 14; i++) {
+                const date = new Date(today);
+                date.setDate(today.getDate() + i);
+                days.push(date.toISOString().split('T')[0]);
+            }
+            return days;
+        };
+
+        // Main App Component
+        function App() {
+            const [currentView, setCurrentView] = useState('home'); // 'home' or 'bookings'
+            const [activeModal, setActiveModal] = useState(null); // 'category', 'service', 'booking', 'success'
+            const [selectedCategory, setSelectedCategory] = useState(null);
+            const [selectedService, setSelectedService] = useState(null);
+            const [selectedDuration, setSelectedDuration] = useState(0);
+            const [currentBooking, setCurrentBooking] = useState(null);
+
+            // Booking form state
+            const [date, setDate] = useState('');
+            const [time, setTime] = useState('');
+            const [guestName, setGuestName] = useState(telegramUserName || '');
+            const [roomNumber, setRoomNumber] = useState('');
+
+            useEffect(() => {
+                if (getNext14Days().length > 0) {
+                    setDate(getNext14Days()[0]);
+                }
+            }, []);
+
+            // Handle Telegram back button
+            useEffect(() => {
+                if (tg?.BackButton) {
+                    if (activeModal) {
+                        tg.BackButton.show();
+                        tg.BackButton.onClick(handleBack);
+                    } else {
+                        tg.BackButton.hide();
+                    }
+                }
+                return () => {
+                    if (tg?.BackButton) {
+                        tg.BackButton.offClick(handleBack);
+                    }
+                };
+            }, [activeModal]);
+
+            const handleBack = () => {
+                haptic('light');
+                if (activeModal === 'success') {
+                    setActiveModal(null);
+                    setCurrentView('home');
+                } else if (activeModal === 'booking') {
+                    setActiveModal('service');
+                } else if (activeModal === 'service') {
+                    setActiveModal('category');
+                } else {
+                    setActiveModal(null);
+                }
+            };
+
+            const openCategory = (categoryId) => {
+                haptic('medium');
+                setSelectedCategory(categoryId);
+                setActiveModal('category');
+            };
+
+            const openService = (service) => {
+                haptic('medium');
+                setSelectedService(service);
+                setSelectedDuration(0);
+                setActiveModal('service');
+            };
+
+            const openBooking = () => {
+                haptic('medium');
+                setActiveModal('booking');
+
+                // Setup Telegram MainButton
+                if (tg?.MainButton) {
+                    tg.MainButton.setText('Confirm Reservation');
+                    tg.MainButton.show();
+                    tg.MainButton.onClick(handleConfirmBooking);
+                }
+            };
+
+            const handleConfirmBooking = () => {
+                // Validation
+                if (!guestName.trim()) {
+                    if (tg?.showAlert) {
+                        tg.showAlert('Please enter your name');
+                    } else {
+                        alert('Please enter your name');
+                    }
+                    return;
+                }
+
+                if (!/^\d{4}$/.test(roomNumber)) {
+                    if (tg?.showAlert) {
+                        tg.showAlert('Room number must be exactly 4 digits');
+                    } else {
+                        alert('Room number must be exactly 4 digits');
+                    }
+                    return;
+                }
+
+                if (!time) {
+                    if (tg?.showAlert) {
+                        tg.showAlert('Please select a time slot');
+                    } else {
+                        alert('Please select a time slot');
+                    }
+                    return;
+                }
+
+                if (tg?.HapticFeedback) {
+                    tg.HapticFeedback.notificationOccurred('success');
+                }
+
+                const duration = selectedService.durations[selectedDuration];
+                const price = duration.price;
+                const gratuity = price * 0.18;
+                const total = price + gratuity;
+
+                const booking = {
+                    id: generateBookingRef(),
+                    service: selectedService.name,
+                    duration: duration.minutes,
+                    price: price,
+                    date: date,
+                    time: time,
+                    guestName: guestName,
+                    roomNumber: roomNumber,
+                    gratuity: parseFloat(gratuity.toFixed(2)),
+                    total: parseFloat(total.toFixed(2)),
+                    timestamp: Date.now(),
+                    telegramUserId: telegramUserId
+                };
+
+                saveBooking(booking);
+                setCurrentBooking(booking);
+
+                // Send to Telegram
+                if (tg?.sendData) {
+                    try {
+                        tg.sendData(JSON.stringify({ type: 'spa_booking', ...booking }));
+                    } catch (e) {
+                        console.error('Failed to send data:', e);
+                    }
+                }
+
+                // Hide MainButton
+                if (tg?.MainButton) {
+                    tg.MainButton.hide();
+                    tg.MainButton.offClick(handleConfirmBooking);
+                }
+
+                setActiveModal('success');
+            };
+
+            const closeModal = () => {
+                haptic('light');
+                setActiveModal(null);
+                if (tg?.MainButton) {
+                    tg.MainButton.hide();
+                }
+            };
+
+            const closeApp = () => {
+                haptic('medium');
+                if (tg?.close) {
+                    tg.close();
+                } else {
+                    setActiveModal(null);
+                    setCurrentView('home');
+                }
+            };
+
+            if (!isInTelegram) {
+                return (
+                    <div className="telegram-warning">
+                        ⚠️ Please open this app from the Telegram bot<br />
+                        @trailblazer_concierge_bot
+                    </div>
+                );
+            }
+
+            const categories = [
+                { id: 'massages', name: 'Massages', image: SERVICES_DATA.massages.image },
+                { id: 'facials', name: 'Facials', image: SERVICES_DATA.facials.image },
+                { id: 'body_therapies', name: 'Body Therapies', image: SERVICES_DATA.body_therapies.image },
+                { id: 'salon', name: 'Salon', image: SERVICES_DATA.salon.image },
+                { id: 'nails', name: 'Nails', image: SERVICES_DATA.nails.image },
+                { id: 'thermal', name: 'Thermal Suite', image: SERVICES_DATA.thermal.image },
+                { id: 'fitness', name: 'Fitness Studio', image: SERVICES_DATA.fitness.image }
+            ];
+
+            return (
+                <>
+                    {/* Main Content */}
+                    {currentView === 'home' && (
+                        <>
+                            <div className="header">
+                                <div className="header-subtitle">GOLDEN HORIZON</div>
+                                <h1 className="header-title">Spa & Wellness</h1>
+                                <div className="header-tagline">Your sanctuary at sea</div>
+                                {telegramUserName && (
+                                    <div style={{ marginTop: '12px', fontSize: '0.9rem', opacity: 0.8 }}>
+                                        Welcome, {telegramUserName}
+                                    </div>
+                                )}
+                            </div>
+
+                            <div className="promo-banner">
+                                ✨ Port Day Special: 10% off select 50-min services
+                            </div>
+
+                            <div className="category-grid">
+                                {categories.map(cat => (
+                                    <div
+                                        key={cat.id}
+                                        className="category-card"
+                                        onClick={() => openCategory(cat.id)}
+                                    >
+                                        <img src={cat.image} alt={cat.name} className="category-img" />
+                                        <div className="category-overlay">
+                                            <div className="category-name">{cat.name}</div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+
+                            <div style={{ height: '80px' }}></div>
+                        </>
+                    )}
+
+                    {currentView === 'bookings' && (
+                        <>
+                            <div className="header">
+                                <h1 className="header-title">My Bookings</h1>
+                            </div>
+
+                            {getStoredBookings().filter(b => !telegramUserId || b.telegramUserId === telegramUserId).length === 0 ? (
+                                <div className="empty-state">
+                                    <div style={{ fontSize: '3rem', marginBottom: '16px' }}>📅</div>
+                                    <div>No bookings yet</div>
+                                    <p style={{ marginTop: '8px' }}>Book your first spa experience</p>
+                                </div>
+                            ) : (
+                                <div className="bookings-list">
+                                    {getStoredBookings()
+                                        .filter(b => !telegramUserId || b.telegramUserId === telegramUserId)
+                                        .sort((a, b) => b.timestamp - a.timestamp)
+                                        .map(booking => (
+                                            <div key={booking.id} className="booking-item">
+                                                <div style={{
+                                                    fontSize: '0.7rem',
+                                                    color: 'var(--spa-gold)',
+                                                    marginBottom: '8px',
+                                                    letterSpacing: '0.1em'
+                                                }}>
+                                                    {booking.id}
+                                                </div>
+                                                <div className="booking-service-name">{booking.service}</div>
+                                                <div className="booking-info-grid">
+                                                    <div>
+                                                        <div style={{ color: 'rgba(255,255,255,0.6)', fontSize: '0.75rem' }}>Date</div>
+                                                        <div>{formatDate(booking.date)}</div>
+                                                    </div>
+                                                    <div>
+                                                        <div style={{ color: 'rgba(255,255,255,0.6)', fontSize: '0.75rem' }}>Time</div>
+                                                        <div>{booking.time}</div>
+                                                    </div>
+                                                    <div>
+                                                        <div style={{ color: 'rgba(255,255,255,0.6)', fontSize: '0.75rem' }}>Room</div>
+                                                        <div>{booking.roomNumber}</div>
+                                                    </div>
+                                                    <div>
+                                                        <div style={{ color: 'rgba(255,255,255,0.6)', fontSize: '0.75rem' }}>Total</div>
+                                                        <div style={{ color: 'var(--spa-gold)', fontWeight: '600' }}>
+                                                            ${booking.total.toFixed(2)}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        ))}
+                                </div>
+                            )}
+
+                            <div style={{ height: '80px' }}></div>
+                        </>
+                    )}
+
+                    {/* Category Modal */}
+                    {activeModal === 'category' && selectedCategory && (
+                        <div className="modal-overlay" onClick={closeModal}>
+                            <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+                                <div className="modal-header">
+                                    <button className="back-button" onClick={closeModal}>×</button>
+                                    <h2 className="modal-title">{SERVICES_DATA[selectedCategory].name}</h2>
+                                </div>
+                                <div className="service-list">
+                                    {SERVICES_DATA[selectedCategory].services.map(service => (
+                                        <div
+                                            key={service.id}
+                                            className="service-card"
+                                            onClick={() => openService(service)}
+                                        >
+                                            <div className="service-name">{service.name}</div>
+                                            <div className="service-description">{service.description}</div>
+                                            <div className="duration-chips">
+                                                {service.durations.map((dur, idx) => (
+                                                    <div key={idx} className="duration-chip">
+                                                        {dur.minutes ? `${dur.minutes} min` : 'Pass'} · ${dur.price}
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Service Detail Modal */}
+                    {activeModal === 'service' && selectedService && (
+                        <div className="modal-overlay" onClick={handleBack}>
+                            <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+                                <div className="modal-header">
+                                    <button className="back-button" onClick={handleBack}>←</button>
+                                    <h2 className="modal-title">{selectedService.name}</h2>
+                                </div>
+                                <div className="service-detail">
+                                    <img src={selectedService.image} alt={selectedService.name} className="detail-hero" />
+                                    <h1 className="detail-title">{selectedService.name}</h1>
+                                    <p className="detail-description">{selectedService.description}</p>
+
+                                    {selectedService.durations.length > 1 && (
+                                        <div className="duration-selector">
+                                            <span className="selector-label">SELECT DURATION</span>
+                                            <div className="duration-options">
+                                                {selectedService.durations.map((dur, idx) => (
+                                                    <div
+                                                        key={idx}
+                                                        className={`duration-option ${selectedDuration === idx ? 'selected' : ''}`}
+                                                        onClick={() => { haptic('light'); setSelectedDuration(idx); }}
+                                                    >
+                                                        <div className="duration-minutes">
+                                                            {dur.minutes ? `${dur.minutes} min` : 'Pass'}
+                                                        </div>
+                                                        <div className="duration-price">${dur.price}</div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    <div className="price-info">
+                                        <div className="price-row">
+                                            <span>Service</span>
+                                            <span>${selectedService.durations[selectedDuration].price}</span>
+                                        </div>
+                                        <div className="price-row">
+                                            <span>18% Service Charge</span>
+                                            <span>${(selectedService.durations[selectedDuration].price * 0.18).toFixed(2)}</span>
+                                        </div>
+                                        <div className="price-row price-total">
+                                            <span>Total</span>
+                                            <span>${(selectedService.durations[selectedDuration].price * 1.18).toFixed(2)}</span>
+                                        </div>
+                                        <div className="gratuity-note">
+                                            *18% service charge is automatically added to all spa services
+                                        </div>
+                                    </div>
+
+                                    <button className="btn-primary" onClick={openBooking}>
+                                        Book Now
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Booking Modal */}
+                    {activeModal === 'booking' && selectedService && (
+                        <div className="modal-overlay" onClick={handleBack}>
+                            <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+                                <div className="modal-header">
+                                    <button className="back-button" onClick={handleBack}>←</button>
+                                    <h2 className="modal-title">Complete Booking</h2>
+                                </div>
+                                <div className="booking-form">
+                                    <div style={{
+                                        background: 'rgba(255, 255, 255, 0.08)',
+                                        border: '1px solid rgba(255, 255, 255, 0.15)',
+                                        borderRadius: '12px',
+                                        padding: '16px',
+                                        marginBottom: '24px'
+                                    }}>
+                                        <div style={{ fontSize: '0.85rem', color: 'rgba(255,255,255,0.6)', marginBottom: '8px' }}>
+                                            Selected Service
+                                        </div>
+                                        <div style={{ fontSize: '1.2rem', fontWeight: '600', marginBottom: '4px' }}>
+                                            {selectedService.name}
+                                        </div>
+                                        <div style={{ color: 'var(--spa-gold)', fontWeight: '600' }}>
+                                            {selectedService.durations[selectedDuration].minutes ?
+                                                `${selectedService.durations[selectedDuration].minutes} minutes` : 'Pass'} ·
+                                            ${selectedService.durations[selectedDuration].price}
+                                        </div>
+                                    </div>
+
+                                    <span className="selector-label">SELECT DATE</span>
+                                    <select
+                                        className="form-input"
+                                        value={date}
+                                        onChange={(e) => setDate(e.target.value)}
+                                    >
+                                        {getNext14Days().map(d => (
+                                            <option key={d} value={d}>{formatDate(d)}</option>
+                                        ))}
+                                    </select>
+
+                                    <span className="selector-label">SELECT TIME</span>
+                                    <div className="time-slots">
+                                        {generateTimeSlots().map(slot => (
+                                            <div
+                                                key={slot}
+                                                className={`time-slot ${time === slot ? 'selected' : ''}`}
+                                                onClick={() => { haptic('light'); setTime(slot); }}
+                                            >
+                                                {slot}
+                                            </div>
+                                        ))}
+                                    </div>
+
+                                    <span className="selector-label">GUEST INFORMATION</span>
+                                    <input
+                                        type="text"
+                                        className="form-input"
+                                        placeholder="Guest Name (Required)"
+                                        value={guestName}
+                                        onChange={(e) => setGuestName(e.target.value)}
+                                    />
+                                    <input
+                                        type="text"
+                                        className="form-input"
+                                        placeholder="Room Number (4 digits)"
+                                        value={roomNumber}
+                                        onChange={(e) => setRoomNumber(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                                        maxLength={4}
+                                    />
+
+                                    <div style={{ height: '100px' }}></div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Success Modal */}
+                    {activeModal === 'success' && currentBooking && (
+                        <div className="modal-overlay">
+                            <div className="modal-content">
+                                <div className="success-screen">
+                                    <div className="success-icon">✨</div>
+                                    <h1 className="success-title">Booking Confirmed!</h1>
+                                    <p className="success-subtitle">Your spa experience awaits</p>
+
+                                    <div className="booking-details">
+                                        <div className="booking-ref">BOOKING REFERENCE: {currentBooking.id}</div>
+
+                                        <div className="booking-info-row">
+                                            <span className="info-label">Service</span>
+                                            <span className="info-value">{currentBooking.service}</span>
+                                        </div>
+
+                                        {currentBooking.duration && (
+                                            <div className="booking-info-row">
+                                                <span className="info-label">Duration</span>
+                                                <span className="info-value">{currentBooking.duration} minutes</span>
+                                            </div>
+                                        )}
+
+                                        <div className="booking-info-row">
+                                            <span className="info-label">Date</span>
+                                            <span className="info-value">{formatDate(currentBooking.date)}</span>
+                                        </div>
+
+                                        <div className="booking-info-row">
+                                            <span className="info-label">Time</span>
+                                            <span className="info-value">{currentBooking.time}</span>
+                                        </div>
+
+                                        <div className="booking-info-row">
+                                            <span className="info-label">Guest</span>
+                                            <span className="info-value">{currentBooking.guestName}</span>
+                                        </div>
+
+                                        <div className="booking-info-row">
+                                            <span className="info-label">Room</span>
+                                            <span className="info-value">{currentBooking.roomNumber}</span>
+                                        </div>
+
+                                        <div className="booking-info-row">
+                                            <span className="info-label">Total</span>
+                                            <span className="info-value" style={{ color: 'var(--spa-gold)' }}>
+                                                ${currentBooking.total.toFixed(2)}
+                                            </span>
+                                        </div>
+                                    </div>
+
+                                    <div style={{ display: 'flex', gap: '12px', width: '100%', maxWidth: '400px' }}>
+                                        <button
+                                            className="btn-primary btn-outline"
+                                            onClick={() => {
+                                                haptic('medium');
+                                                setActiveModal(null);
+                                                setCurrentView('home');
+                                            }}
+                                            style={{ flex: 1 }}
+                                        >
+                                            Book Another
+                                        </button>
+                                        <button
+                                            className="btn-primary"
+                                            onClick={closeApp}
+                                            style={{ flex: 1 }}
+                                        >
+                                            Close
+                                        </button>
+                                    </div>
+
+                                    <div className="policy-note">
+                                        📋 Cancellation Policy: Cancel ≥12 hours in advance to avoid 50% cancellation fee.
+                                        Please arrive 15 minutes early to enjoy our relaxation lounge.
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Bottom Navigation */}
+                    <div className="nav-bar">
+                        <button
+                            className={`nav-button ${currentView === 'home' ? 'active' : ''}`}
+                            onClick={() => { haptic('light'); setCurrentView('home'); setActiveModal(null); }}
+                        >
+                            🏠 Home
+                        </button>
+                        <button
+                            className={`nav-button ${currentView === 'bookings' ? 'active' : ''}`}
+                            onClick={() => { haptic('light'); setCurrentView('bookings'); setActiveModal(null); }}
+                        >
+                            📅 Bookings
+                        </button>
+                    </div>
+                </>
+            );
+        }
+
+        // Render App
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+
+</html>
