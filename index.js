@@ -68,7 +68,7 @@ console.log(
 console.log(`[system] CALENDLY_MINI_APP_URL: ${CALENDLY_MINI_APP_URL ? '✅ SET' : '⚠️ MISSING'}`);
 console.log(`[system] MARKETPLACE_MINI_APP_URL: ${MARKETPLACE_MINI_APP_URL ? '✅ SET' : '⚠️ MISSING'}`);
 console.log(`[system] RESERVATIONS_MINI_APP_URL: ${RESERVATIONS_MINI_APP_URL ? '✅ SET' : '⚠️ MISSING'}`);
-console.log('🚀 BRIDGE VERSION: RELIABLE AI BUTTONS (Commit 37b)');
+console.log('🚀 BRIDGE VERSION: STRICT TURN-SCOPING (Commit 38b)');
 
 // =====================
 // HTTP (keep-alive)
@@ -1295,7 +1295,7 @@ function getProcessedTextForButtons(raw, calendlyUrl) {
   text = text.replace(/\[\]\(\)/g, '').replace(/<a[^>]*><\/a>/gi, '').replace(/[ \t]+$/gm, '').trim();
 
   // 5. Duplicate/Prompt handling
-  const PROMPT = 'Press the Book Now button to book it';
+  const PROMPT = 'Press the Book Now button to complete the booking';
   if (!text.trim() && calendlyUrl) {
     text = PROMPT;
   } else if (text.trim() && calendlyUrl && !text.includes(PROMPT)) {
@@ -1466,8 +1466,13 @@ function applyCalendlyToButtons(buttons, calendlyUrl) {
 
 async function sendVFToTelegram(ctx, vfResp) {
   const userId = ctx.from.id;
+
+  // [Commit 38b] CLEAR PREVIOUS TURN STATE
+  // This prevents the bot from retroactively editing buttons on messages from the previous user interaction.
+  lastBotMsgByUser.delete(userId);
+
   const traces = tracesOf(vfResp);
-  let lastMsgOverall = lastBotMsgByUser.get(userId) || null;
+  let lastMsgOverall = null;
 
   if (DEBUG_STREAM) console.log(`[sendVF] Processing ${traces.length} traces for user ${userId}`);
   if (traces.length === 0) {
