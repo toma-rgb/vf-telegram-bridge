@@ -68,7 +68,7 @@ console.log(
 console.log(`[system] CALENDLY_MINI_APP_URL: ${CALENDLY_MINI_APP_URL ? '✅ SET' : '⚠️ MISSING'}`);
 console.log(`[system] MARKETPLACE_MINI_APP_URL: ${MARKETPLACE_MINI_APP_URL ? '✅ SET' : '⚠️ MISSING'}`);
 console.log(`[system] RESERVATIONS_MINI_APP_URL: ${RESERVATIONS_MINI_APP_URL ? '✅ SET' : '⚠️ MISSING'}`);
-console.log('🚀 BRIDGE VERSION: USER CHOICE PROMPT (Commit 39b)');
+console.log('🚀 BRIDGE VERSION: STRICT TURN-SCOPING + USER PROMPT (Commit 40b)');
 
 // =====================
 // HTTP (keep-alive)
@@ -1295,9 +1295,12 @@ function getProcessedTextForButtons(raw, calendlyUrl) {
   text = text.replace(/\[\]\(\)/g, '').replace(/<a[^>]*><\/a>/gi, '').replace(/[ \t]+$/gm, '').trim();
 
   // 5. Duplicate/Prompt handling
-  const PROMPT = 'Use the \"Book Now\" button to complete the booking.';
+  const PROMPT = 'Press the Book Now button to complete the booking';
   if (!text.trim() && calendlyUrl) {
     text = PROMPT;
+  } else if (text.trim() && calendlyUrl && !text.includes(PROMPT)) {
+    // Append it if not present, with a double newline for spacing
+    text = text.trim() + '\n\n' + PROMPT;
   }
 
   return text;
