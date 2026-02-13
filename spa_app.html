@@ -694,7 +694,7 @@
             },
             body_therapies: {
                 name: 'Body Therapies',
-                image: 'https://images.unsplash.com/photo-1544161513-2cdb-4c4f-c3e8-e352c15c7dbe?w=800',
+                image: 'https://images.unsplash.com/photo-1540555700478-4be289fbecef?w=800',
                 services: [
                     {
                         id: 'sea-salt-scrub',
@@ -955,15 +955,7 @@
                     return;
                 }
 
-                const roomNum = roomNumber.trim();
-                if (!/^\d{4}$/.test(roomNum) || roomNum.length !== 4) {
-                    if (tg?.showAlert) {
-                        tg.showAlert('Room number must be exactly 4 digits');
-                    } else {
-                        alert('Room number must be exactly 4 digits');
-                    }
-                    return;
-                }
+                // Room number validation removed - accept any input
 
                 if (!time) {
                     if (tg?.showAlert) {
@@ -1065,11 +1057,9 @@
                                 <div className="header-subtitle">GOLDEN HORIZON</div>
                                 <h1 className="header-title">Spa & Wellness</h1>
                                 <div className="header-tagline">Your sanctuary at sea</div>
-                                {telegramUser && (
-                                    <div style={{ marginTop: '12px', fontSize: '0.9rem', opacity: 0.8 }}>
-                                        Welcome, {telegramUser.first_name}
-                                    </div>
-                                )}
+                                <div style={{ marginTop: '12px', fontSize: '0.9rem', opacity: 0.8 }}>
+                                    Welcome, [your name]
+                                </div>
                             </div>
 
                             <div className="promo-banner">
@@ -1309,10 +1299,9 @@
                                     <input
                                         type="text"
                                         className="form-input"
-                                        placeholder="Room Number (4 digits)"
+                                        placeholder="Room Number"
                                         value={roomNumber}
-                                        onChange={(e) => setRoomNumber(e.target.value.replace(/\D/g, '').slice(0, 4))}
-                                        maxLength={4}
+                                        onChange={(e) => setRoomNumber(e.target.value)}
                                     />
 
                                     <div style={{ height: '100px' }}></div>
