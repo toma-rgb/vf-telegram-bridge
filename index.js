@@ -68,7 +68,7 @@ console.log(
 console.log(`[system] CALENDLY_MINI_APP_URL: ${CALENDLY_MINI_APP_URL ? '✅ SET' : '⚠️ MISSING'}`);
 console.log(`[system] MARKETPLACE_MINI_APP_URL: ${MARKETPLACE_MINI_APP_URL ? '✅ SET' : '⚠️ MISSING'}`);
 console.log(`[system] RESERVATIONS_MINI_APP_URL: ${RESERVATIONS_MINI_APP_URL ? '✅ SET' : '⚠️ MISSING'}`);
-console.log('🚀 BRIDGE VERSION: RESTORED TEXT FORMATTING (Commit 32b)');
+console.log('🚀 BRIDGE VERSION: PROFESSIONAL FORMATTING RESTORED (Commit 33b)');
 
 // =====================
 // HTTP (keep-alive)
@@ -200,7 +200,9 @@ function esc(s) {
 
 function normalizeSpacing(text) {
   if (!text) return '';
-  return text.replace(/[ \t]+$/gm, '').replace(/\n{3,}/g, '\n\n').trim();
+  // Preserve vertical layout by NOT using a global .trim() here.
+  // Only trim trailing whitespace per line and collapse 3+ newlines.
+  return text.replace(/[ \t]+$/gm, '').replace(/\n{3,}/g, '\n\n');
 }
 
 function hasCompleteSentence(text) {
@@ -349,7 +351,7 @@ function slateToText(slate) {
       slate?.content
         ?.map((b) => (b.children || []).map((c) => c.text).filter(Boolean).join(''))
         .filter(Boolean)
-        .join('\n') || ''
+        .join('\n\n') || '' // Use double newlines for professional paragraph separation
     );
   } catch {
     return '';
@@ -449,11 +451,17 @@ function mergeCompletion(prev, incoming) {
   return p + n;
 }
 
-async function completionSendOrUpdate(ctx, userId, fullText, { force = false } = {}) {
+async function completionSendOrUpdate(ctx, userId, fullTextRaw, { force = false } = {}) {
   const s = completionStateByUser.get(userId) || defaultCompletionState();
-  s.accumulated = String(fullText || '');
 
-  const segments = segmentContent(s.accumulated);
+  // CRITICAL: Do NOT overwrite s.accumulated with the 'cleaned' text.
+  // Keep the raw buffer for streaming, but clean the DISPLAY text.
+  s.accumulated = String(fullTextRaw || '');
+
+  const calendlyUrl = extractCalendlyUrl(s.accumulated);
+  const displayableFullText = getProcessedTextForButtons(s.accumulated, calendlyUrl);
+
+  const segments = segmentContent(displayableFullText);
 
   for (let i = 0; i < segments.length; i++) {
     if (i <= s.finalizedIdx) continue;
@@ -632,11 +640,8 @@ async function handleTraceRealtime(ctx, trace, { skipRendering = false } = {}) {
 
     if (skipRendering) return;
 
-    // FINAL SEALANT: Clean the streaming text BEFORE showing it
-    const calendlyUrl = extractCalendlyUrl(s.accumulated);
-    const cleanText = getProcessedTextForButtons(s.accumulated, calendlyUrl);
-
-    await completionSendOrUpdate(ctx, userId, cleanText);
+    // Pass the RAW text. completionSendOrUpdate will handle cleaning for display.
+    await completionSendOrUpdate(ctx, userId, s.accumulated);
     return;
   }
 
