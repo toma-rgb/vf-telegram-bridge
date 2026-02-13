@@ -68,7 +68,7 @@ console.log(
 console.log(`[system] CALENDLY_MINI_APP_URL: ${CALENDLY_MINI_APP_URL ? '✅ SET' : '⚠️ MISSING'}`);
 console.log(`[system] MARKETPLACE_MINI_APP_URL: ${MARKETPLACE_MINI_APP_URL ? '✅ SET' : '⚠️ MISSING'}`);
 console.log(`[system] RESERVATIONS_MINI_APP_URL: ${RESERVATIONS_MINI_APP_URL ? '✅ SET' : '⚠️ MISSING'}`);
-console.log('🚀 BRIDGE VERSION: BOOKING INSTRUCTIONS ADDED (Commit 35b)');
+console.log('🚀 BRIDGE VERSION: EMERGENCY REVERT & BUTTON FIX (Commit 36b)');
 
 // =====================
 // HTTP (keep-alive)
@@ -1295,12 +1295,9 @@ function getProcessedTextForButtons(raw, calendlyUrl) {
   text = text.replace(/\[\]\(\)/g, '').replace(/<a[^>]*><\/a>/gi, '').replace(/[ \t]+$/gm, '').trim();
 
   // 5. Duplicate/Prompt handling
-  const PROMPT = 'Press the Book Now button to book it';
+  const PROMPT = 'Use the "Book Now" button to complete the booking.';
   if (!text.trim() && calendlyUrl) {
     text = PROMPT;
-  } else if (text.trim() && calendlyUrl && !text.includes(PROMPT)) {
-    // Append it if not present, with a double newline for spacing
-    text = text.trim() + '\n\n' + PROMPT;
   }
 
   return text;
@@ -1483,9 +1480,10 @@ async function sendVFToTelegram(ctx, vfResp) {
   const responseSyntheticButtons = [];
   let overallCalendlyUrl = null;
 
-  // [Commit 34b] SCAN AI COMPLETION FIRST (if active or recent)
-  // This ensures "Book Now" buttons appear for AI-generated text too.
-  if (comp?.accumulated?.trim()) {
+  // [Commit 34b] SCAN AI COMPLETION FIRST (only if active or from THIS specific response)
+  // This ensures "Book Now" buttons appear for AI-generated text.
+  // We check if the completion message was actually generated in this turn.
+  if (comp?.accumulated?.trim() && comp.active) {
     const syn = getSyntheticButtons(comp.accumulated, 'pre-scan-ai');
     for (const s of syn) {
       if (!responseSyntheticButtons.some(b => b.name === s.name)) responseSyntheticButtons.push(s);
