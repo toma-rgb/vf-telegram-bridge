@@ -74,44 +74,125 @@ console.log('🚀 BRIDGE VERSION: SCOPED BOOKING MESSAGE (Commit 41b)');
 // =====================
 // Global Rate Limiter (Leaky Bucket)
 // =====================
-class GlobalRateLimiter {
-  constructor(maxPerSecond = 25) {
-    this.queue = [];
-    this.interval = 1000 / maxPerSecond; // ms between messages
-    this.lastSendTime = 0;
-    this.timer = null;
+class TokenBucket {
+  constructor(capacity, refillRate) {
+    this.capacity = capacity;
+    this.tokens = capacity;
+    this.refillRate = refillRate; // tokens per ms
+    this.lastRefill = Date.now();
   }
 
-  // Returns a promise that resolves when it's safe to send
-  async wait() {
-    return new Promise((resolve) => {
-      this.queue.push(resolve);
-      this.schedule();
-    });
-  }
-
-  schedule() {
-    if (this.timer) return; // Already running
-    if (this.queue.length === 0) return;
-
+  refill() {
     const now = Date.now();
-    const timeSinceLast = now - this.lastSendTime;
-    const delay = Math.max(0, this.interval - timeSinceLast);
+    const elapsed = now - this.lastRefill;
+    const newTokens = elapsed * this.refillRate;
 
-    this.timer = setTimeout(() => {
-      this.timer = null;
-      this.lastSendTime = Date.now();
-      const resolve = this.queue.shift();
-      if (resolve) resolve();
+    if (newTokens > 0) {
+      this.tokens = Math.min(this.capacity, this.tokens + newTokens);
+      this.lastRefill = now;
+    }
+  }
 
-      if (this.queue.length > 0) {
-        this.schedule();
-      }
-    }, delay);
+  async take(cost = 1) {
+    this.refill();
+    if (this.tokens >= cost) {
+      this.tokens -= cost;
+      return true; // Taken immediately
+    }
+
+    // Calculate wait time
+    const missing = cost - this.tokens;
+    const waitTime = Math.ceil(missing / this.refillRate);
+
+    return new Promise(resolve => setTimeout(async () => {
+      // Re-check after wait (recursion ensures safety)
+      await this.take(cost);
+      resolve(true);
+    }, waitTime));
   }
 }
 
-const globalLimiter = new GlobalRateLimiter(25); // Target 25/sec (below Telegram's 30/sec)
+class SmartTransport {
+  constructor() {
+    // telegram global limit: ~30/sec. We target 27/sec for safety.
+    // 27 tokens / 1000ms = 0.027 tokens/ms
+    this.globalBucket = new TokenBucket(27, 0.027);
+
+    // Per-chat queues: Map<chatId, { queue: Array, bucket: TokenBucket, processing: Boolean, pausedUntil: Number }>
+    this.chats = new Map();
+  }
+
+  getChatState(chatId) {
+    if (!this.chats.has(chatId)) {
+      this.chats.set(chatId, {
+        queue: [],
+        // telegram per-chat limit: ~1/sec. We target 1/1100ms slightly slower to be safe.
+        // 1 token / 1100ms = ~0.0009 tokens/ms
+        bucket: new TokenBucket(1, 0.0009),
+        processing: false,
+        pausedUntil: 0
+      });
+    }
+    return this.chats.get(chatId);
+  }
+
+  enqueue(chatId, task) {
+    const state = this.getChatState(chatId);
+    state.queue.push(task);
+    this.processQueue(chatId);
+  }
+
+  async processQueue(chatId) {
+    const state = this.chats.get(chatId);
+    if (!state || state.processing) return;
+
+    state.processing = true;
+
+    while (state.queue.length > 0) {
+      // 1. Check for pause (429 retry_after)
+      const now = Date.now();
+      if (state.pausedUntil > now) {
+        const wait = state.pausedUntil - now;
+        if (DEBUG_STREAM) console.log(`[transport] Chat ${chatId} paused for ${wait}ms`);
+        await new Promise(r => setTimeout(r, wait));
+        state.pausedUntil = 0;
+      }
+
+      // 2. Wait for buckets (Global AND Chat)
+      // Parallel wait: strictly strictly we need both permissions.
+      await Promise.all([
+        this.globalBucket.take(1),
+        state.bucket.take(1)
+      ]);
+
+      // 3. Execute task
+      const task = state.queue[0]; // Peek
+      try {
+        await task();
+        state.queue.shift(); // Remove only on success (or if we decide to drop it)
+      } catch (err) {
+        // Handle 429 specifically
+        if (err?.response?.error_code === 429 || err?.code === 429) {
+          const retryAfter = err?.parameters?.retry_after || err?.response?.parameters?.retry_after || 5;
+          console.warn(`[transport] 429 Too Many Requests for chat ${chatId}. Pausing for ${retryAfter}s.`);
+          state.pausedUntil = Date.now() + (retryAfter * 1000) + 1000; // Add 1s buffer
+          // Do NOT shift the task; retry it after pause loop
+        } else {
+          console.error(`[transport] Error sending to ${chatId}:`, err.message);
+          state.queue.shift(); // Drop failed message if not 429 (avoid blocking queue forever)
+        }
+      }
+    }
+
+    state.processing = false;
+    // Cleanup empty states to save memory
+    if (state.queue.length === 0) {
+      this.chats.delete(chatId);
+    }
+  }
+}
+
+const transport = new SmartTransport();
 
 // =====================
 // HTTP (keep-alive)
@@ -1599,12 +1680,55 @@ async function sendVFToTelegram(ctx, vfResp) {
     if (responseSyntheticButtons.length) console.log('[sendVF] Collected synthetic buttons:', responseSyntheticButtons.map(b => b.name));
   }
 
-  for (let i = 0; i < traces.length; i += 1) {
-    // GLOBAL RATE LIMIT: Wait for our turn to speak
-    await globalLimiter.wait();
+  // ===========================================================================
+  // QUEUED CONTEXT PROXY
+  // Intercepts ctx.reply* and telegram.* calls to enqueue them in SmartTransport
+  // ===========================================================================
+  const queuedCtx = new Proxy(ctx, {
+    get(target, prop) {
+      if (['reply', 'replyWithPhoto', 'replyWithAnimation', 'replyWithDocument', 'replyWithMediaGroup', 'sendChatAction'].includes(prop)) {
+        return async (...args) => {
+          return new Promise((resolve, reject) => {
+            transport.enqueue(userId, async () => {
+              try {
+                const res = await target[prop].call(target, ...args);
+                resolve(res);
+              } catch (e) {
+                reject(e);
+                throw e;
+              }
+            });
+          });
+        };
+      }
+      if (prop === 'telegram') {
+        return new Proxy(target.telegram, {
+          get(tgTarget, tgProp) {
+            if (['editMessageReplyMarkup', 'sendMessage', 'sendPhoto'].includes(tgProp)) {
+              return async (...args) => {
+                return new Promise((resolve, reject) => {
+                  transport.enqueue(userId, async () => {
+                    try {
+                      const res = await tgTarget[tgProp].call(tgTarget, ...args);
+                      resolve(res);
+                    } catch (e) {
+                      reject(e);
+                      throw e;
+                    }
+                  });
+                });
+              };
+            }
+            return tgTarget[tgProp];
+          }
+        });
+      }
+      return target[prop];
+    }
+  });
 
-    // PER-USER RATE LIMIT: Don't spam a single chat
-    if (i > 0) await new Promise((r) => setTimeout(r, 300));
+  for (let i = 0; i < traces.length; i += 1) {
+    // RATE LIMITING is now handled by queuedCtx inside render functions
 
     try {
       const t = traces[i];
@@ -1636,7 +1760,7 @@ async function sendVFToTelegram(ctx, vfResp) {
               const nextChoice = traces.slice(i + 1).find(nxt => nxt.type === 'choice' || nxt.type === 'cardV2');
               if (!nextChoice) {
                 const kb = makeKeyboard(userId, syn);
-                await attachChoiceKeyboard(ctx, lb, kb);
+                await attachChoiceKeyboard(queuedCtx, lb, kb);
                 ctx.state.pendingSyntheticButtons = [];
                 if (DEBUG_BUTTONS) console.log('[streaming] attached synthetic buttons to streamed bubble (no choice follows)');
               }
@@ -1647,7 +1771,7 @@ async function sendVFToTelegram(ctx, vfResp) {
 
         const next = traces[i + 1];
         const { consumed, lastMsg } = await renderTextChoiceGalleryAndButtonsLast(
-          ctx,
+          queuedCtx,
           raw,
           next?.type === 'choice' ? next : null,
           responseSyntheticButtons
@@ -1670,7 +1794,7 @@ async function sendVFToTelegram(ctx, vfResp) {
         if (!buttons.length) continue;
 
         // Ensure streaming edits are flushed before attaching buttons
-        await completionFlush(ctx, userId);
+        await completionFlush(queuedCtx, userId);
 
         const syn = [...responseSyntheticButtons, ...(ctx.state?.pendingSyntheticButtons || [])];
         ctx.state.pendingSyntheticButtons = []; // clear
@@ -1696,7 +1820,7 @@ async function sendVFToTelegram(ctx, vfResp) {
         // Prefer the most recent bot message (streaming message sets this)
         const target = lastBotMsgByUser.get(userId) || lastMsgOverall || null;
 
-        const attached = await attachChoiceKeyboard(ctx, target, kb);
+        const attached = await attachChoiceKeyboard(queuedCtx, target, kb);
         if (attached) lastMsgOverall = attached;
         else lastMsgOverall = lastBotMsgByUser.get(userId) || lastMsgOverall;
 
@@ -1707,7 +1831,7 @@ async function sendVFToTelegram(ctx, vfResp) {
         const url = t.payload?.image || t.payload?.url || t.payload?.src;
         if (DEBUG_MEDIA) console.log('[visual] url=', url);
         if (url) {
-          const msg = await sendMediaWithCaption(ctx, url, undefined);
+          const msg = await sendMediaWithCaption(queuedCtx, url, undefined);
           if (msg) {
             lastMsgOverall = { chatId: msg.chat.id, message_id: msg.message_id, keyboard: 'none' };
             lastBotMsgByUser.set(userId, lastMsgOverall);
@@ -1732,20 +1856,20 @@ async function sendVFToTelegram(ctx, vfResp) {
         let msgRef = null;
 
         if (descText && mediaUrl) {
-          msgRef = await safeReplyHtml(ctx, mdToHtml(normalizeSpacing(descText)));
+          msgRef = await safeReplyHtml(queuedCtx, mdToHtml(normalizeSpacing(descText)));
           if (msgRef) {
             lastMsgOverall = { chatId: msgRef.chat.id, message_id: msgRef.message_id, keyboard: 'none' };
             lastBotMsgByUser.set(userId, lastMsgOverall);
           }
         } else if (!mediaUrl && (title || descText)) {
-          msgRef = await safeReplyHtml(ctx, mdToHtml(normalizeSpacing([title, descText].filter(Boolean).join('\n\n'))), {
+          msgRef = await safeReplyHtml(queuedCtx, mdToHtml(normalizeSpacing([title, descText].filter(Boolean).join('\n\n'))), {
             reply_markup: replyMarkup || undefined,
           });
         }
 
         if (mediaUrl) {
           const mediaMsg = await sendMediaWithCaption(
-            ctx,
+            queuedCtx,
             mediaUrl,
             title ? mdToHtml(title) : undefined,
             replyMarkup || undefined
@@ -1754,7 +1878,7 @@ async function sendVFToTelegram(ctx, vfResp) {
         }
 
         if (msgRef) {
-          if (kb?.length) await ensureKeyboardOnMessage(ctx, msgRef, kb);
+          if (kb?.length) await ensureKeyboardOnMessage(queuedCtx, msgRef, kb);
           lastMsgOverall = { chatId: msgRef.chat.id, message_id: msgRef.message_id, keyboard: kb?.length ? 'card' : 'none' };
           lastBotMsgByUser.set(userId, lastMsgOverall);
         }
@@ -1777,7 +1901,7 @@ async function sendVFToTelegram(ctx, vfResp) {
         }
 
         if (topText) {
-          const msg = await safeReplyHtml(ctx, mdToHtml(topText));
+          const msg = await safeReplyHtml(queuedCtx, mdToHtml(topText));
           if (msg) {
             lastMsgOverall = { chatId: msg.chat.id, message_id: msg.message_id, keyboard: 'none' };
             lastBotMsgByUser.set(userId, lastMsgOverall);
@@ -1785,7 +1909,7 @@ async function sendVFToTelegram(ctx, vfResp) {
         }
 
         if (mediaUrl) {
-          const mediaMsg = await sendMediaWithCaption(ctx, mediaUrl, title ? mdToHtml(title) : undefined);
+          const mediaMsg = await sendMediaWithCaption(queuedCtx, mediaUrl, title ? mdToHtml(title) : undefined);
           if (mediaMsg) {
             lastMsgOverall = { chatId: mediaMsg.chat.id, message_id: mediaMsg.message_id, keyboard: 'none' };
             lastBotMsgByUser.set(userId, lastMsgOverall);
@@ -1815,13 +1939,13 @@ async function sendVFToTelegram(ctx, vfResp) {
 
           let msgRef = null;
           if (mediaUrl) {
-            msgRef = await sendMediaWithCaption(ctx, mediaUrl, captionHtml, replyMarkup || undefined);
+            msgRef = await sendMediaWithCaption(queuedCtx, mediaUrl, captionHtml, replyMarkup || undefined);
           } else if (captionHtml) {
-            msgRef = await safeReplyHtml(ctx, captionHtml, { reply_markup: replyMarkup || undefined });
+            msgRef = await safeReplyHtml(queuedCtx, captionHtml, { reply_markup: replyMarkup || undefined });
           }
 
           if (msgRef) {
-            if (kb?.length) await ensureKeyboardOnMessage(ctx, msgRef, kb);
+            if (kb?.length) await ensureKeyboardOnMessage(queuedCtx, msgRef, kb);
             lastMsgOverall = { chatId: msgRef.chat.id, message_id: msgRef.message_id, keyboard: kb?.length ? 'card' : 'none' };
             lastBotMsgByUser.set(userId, lastMsgOverall);
           }
