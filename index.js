@@ -1603,6 +1603,9 @@ async function sendVFToTelegram(ctx, vfResp) {
     // GLOBAL RATE LIMIT: Wait for our turn to speak
     await globalLimiter.wait();
 
+    // PER-USER RATE LIMIT: Don't spam a single chat
+    if (i > 0) await new Promise((r) => setTimeout(r, 300));
+
     try {
       const t = traces[i];
       if (!t) continue;
