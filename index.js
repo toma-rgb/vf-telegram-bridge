@@ -72,6 +72,48 @@ console.log(`[system] RESERVATIONS_MINI_APP_URL: ${RESERVATIONS_MINI_APP_URL ? '
 console.log('🚀 BRIDGE VERSION: SCOPED BOOKING MESSAGE (Commit 41b)');
 
 // =====================
+// Global Rate Limiter (Leaky Bucket)
+// =====================
+class GlobalRateLimiter {
+  constructor(maxPerSecond = 25) {
+    this.queue = [];
+    this.interval = 1000 / maxPerSecond; // ms between messages
+    this.lastSendTime = 0;
+    this.timer = null;
+  }
+
+  // Returns a promise that resolves when it's safe to send
+  async wait() {
+    return new Promise((resolve) => {
+      this.queue.push(resolve);
+      this.schedule();
+    });
+  }
+
+  schedule() {
+    if (this.timer) return; // Already running
+    if (this.queue.length === 0) return;
+
+    const now = Date.now();
+    const timeSinceLast = now - this.lastSendTime;
+    const delay = Math.max(0, this.interval - timeSinceLast);
+
+    this.timer = setTimeout(() => {
+      this.timer = null;
+      this.lastSendTime = Date.now();
+      const resolve = this.queue.shift();
+      if (resolve) resolve();
+
+      if (this.queue.length > 0) {
+        this.schedule();
+      }
+    }, delay);
+  }
+}
+
+const globalLimiter = new GlobalRateLimiter(25); // Target 25/sec (below Telegram's 30/sec)
+
+// =====================
 // HTTP (keep-alive)
 // =====================
 const httpAgent = new http.Agent({ keepAlive: true, keepAliveMsecs: 10_000, maxSockets: 50 });
@@ -1558,6 +1600,9 @@ async function sendVFToTelegram(ctx, vfResp) {
   }
 
   for (let i = 0; i < traces.length; i += 1) {
+    // GLOBAL RATE LIMIT: Wait for our turn to speak
+    await globalLimiter.wait();
+
     try {
       const t = traces[i];
       if (!t) continue;
@@ -1787,6 +1832,13 @@ async function sendVFToTelegram(ctx, vfResp) {
       if (t.type === 'completion') continue;
 
     } catch (err) {
+      if (err?.response?.error_code === 429 || err?.code === 429) {
+        const retryAfter = err?.parameters?.retry_after || err?.response?.parameters?.retry_after || 5;
+        console.warn(`[sendVF] RATE LIMIT (429) on trace ${i + 1}. Waiting ${retryAfter}s...`);
+        await new Promise((r) => setTimeout(r, (retryAfter * 1000) + 1000));
+        i--; // Retry this trace
+        continue;
+      }
       console.error(`[sendVF] ERROR processing trace ${i + 1}:`, err);
     }
   }
